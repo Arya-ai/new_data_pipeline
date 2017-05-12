@@ -1,0 +1,65 @@
+message LayerParameter {
+  required string type = 1; // the layer type
+  // 'input' refers to the name of the layers which are input to this layer
+  repeated string input = 2; // the name of each input blob
+  // 'name' refers to the name of the output produced by this layer
+  optional string name = 3; // the name of each name blob
+
+  // Layer type-specific parameters.
+  //
+  // Note: certain layers may have more than one computational engine
+  // for their implementation. These layers include an Engine type and
+  // engine parameter for selecting the implementation.
+  optional DataParameter data_param = 100;
+  optional Convolution2DParameter convolution2d_param = 101;
+  optional DenseParameter dense_param = 102;
+  optional DropoutParameter dropout_param = 104;
+  optional MaxPooling2DParameter maxpooling2d_param = 103;
+}
+
+message Size {
+  repeated uint32 dim = 1;
+}
+
+message DataParameter {
+  required Size size = 1;
+}
+
+
+message Convolution2DParameter {
+  required uint32 num_filters = 1;
+  required uint32 kernel_size_x = 2;
+  required uint32 kernel_size_y = 3;
+  optional uint32 stride_x = 4;
+  optional uint32 stride_y = 5;
+  optional string pad = 6;
+  // activation
+  optional string activation = 7;
+  // weight initialization related
+  optional string init = 8;
+  optional float W_stddev = 9;
+  optional float b_val = 10;
+}
+
+message MaxPooling2DParameter {
+  required uint32 kernel_size_x = 1;
+  required uint32 kernel_size_y = 2;
+  optional uint32 stride_x = 3;
+  optional uint32 stride_y = 4;
+  optional string pad = 5;
+}
+
+message DenseParameter {
+  required uint32 num_units = 1;
+  optional string activation = 2;
+  // weight initialization related
+  optional string init = 3;
+  optional float W_stddev = 4;
+  optional float b_val = 5;
+}
+
+message DropoutParameter {
+  optional float keep_prob = 1 [default = 0.5];
+}
+
+

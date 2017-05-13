@@ -1,0 +1,36 @@
+syntax="proto2";
+
+message Datum {
+  optional Numeric numeric = 10;
+  repeated ImgData imgdata = 11;
+  optional Class class = 12;
+}
+
+message ImgData{
+    required string identifier = 1;
+    optional uint32 channels = 2;
+    optional uint32 height = 3;
+    optional uint32 width = 4;
+    // the actual image data, in bytes
+    optional bytes data = 5;
+    // Optionally, the datum could also hold float data.
+    repeated float float_data = 6;
+    // If true data contains an encoded image that need to be decoded
+    optional bool encoded = 7 [default = false];
+  }
+
+message Numeric{
+  required string identifier = 1;
+  required Size size = 2;
+  optional bytes data = 3;
+}
+
+message Size{
+  repeated uint32 dim = 1;
+}
+
+message Class {
+  required string identifier = 1;
+  optional string slabel = 2;
+  optional uint32 nlabel = 3;
+}

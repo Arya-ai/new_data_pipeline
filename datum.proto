@@ -3,7 +3,7 @@ syntax="proto2";
 message Datum {
   optional Numeric numeric = 10;
   repeated ImgData imgdata = 11;
-  optional Class class = 12;
+  optional Class classs = 12;
 }
 
 message ImgData{

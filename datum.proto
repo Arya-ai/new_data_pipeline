@@ -21,12 +21,12 @@ message ImgData{
 
 message Numeric{
   required string identifier = 1;
-  required Size size = 2;
+  optional Size size = 2;
   optional bytes data = 3;
 }
 
 message Size{
-  repeated uint32 dim = 1;
+  optional uint32 dim = 1 [default=1];
 }
 
 message Class {

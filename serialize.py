@@ -6,6 +6,8 @@ from datum_pb2 import Datum
 import pandas as pd
 from threading import Thread
 from Queue import Queue
+from sklearn.feature_extraction.text import CountVectorizer
+import json
 
 class readWorker():
 	'''
@@ -77,7 +79,7 @@ class readWorker():
 					print "Error:", e
 			elif file.endswith(".json"):
 				try:
-					df = pd.read_json(file)
+					df = json.load(file)
 				except IOError as e:
 					print "Error:", e
 			else:
@@ -91,21 +93,47 @@ class readWorker():
 			labeldf = pd.concat(labelSeries, axis=1)		# concat all the labels into a single df
 
 			for idx in xrange(len(df)):
-				datum = df.iloc[idx]
-				datum = datum.to_frame()
-				datum = datum.to_records(index=False)
+				data = df.iloc[idx]
+				data = data.to_frame()
+				data = data.to_records(index=False)
 
 				label = labeldf.iloc[idx]
 				label = label.to_frame()
 				label = label.to_records(index=False)
 
-				item = tuple([datum, label, idx])
+				item = tuple([data, label, idx])
 				print "Pushing item into File Queue..."
 				fileQueue.put(item)
 
-	def readText(self, fileQueue, file):
+	def readText(self, fileQueue, file,name,text,label):
 		while True:
-			return None
+			if file.endswith(".csv"):
+				try:
+					df = pd.read_csv(file)
+				except IOError as e:
+					print "Error:", e
+			elif file.endswith(".json"):
+				try:
+					df = json.load(file)
+				except IOError as e:
+					print "Error:", e
+			else:
+				print "Error: Provide the file in valid format (.csv or .json)"
+				return
+			vectorizer = CountVectorizer(token_pattern=u"(?u)\\b\\w+\\b")
+
+			caps=[]
+			for i in df[name]:
+				caps.append(i[text])
+			train_features = vectorizer.fit_transform(caps)
+			vecs = train_features.toarray()
+
+			for idx in xrange(len(df)):
+				data = vecs[idx]
+				label = df[name][idx][label]
+				item = tuple([data,label,idx])
+				print "Pushing item into File Queue..."
+				fileQueue.put(item)
 
 class datumWorker():
 	'''
@@ -143,7 +171,7 @@ class datumWorker():
 	def NumericDatum(self, fileQueue, datumQueue):
 		count = 0
 		while True:
-			datum, label, key = list(fileQueue.get())
+			data, label, key = list(fileQueue.get())
 			count += 1
 			datum = Datum()
 			labelDatum = datum.classs
@@ -158,17 +186,31 @@ class datumWorker():
 			print "datum #{}".format(count)
 			print "\ndatum:\n", datum
 
-			numericDatum.data = datum.tobytes()
+			numericDatum.data = data.tobytes()
 
 			item = tuple([numericDatum, labelDatum, key])
 			datumQueue.put(item)
 			fileQueue.task_done()
 
-	def TextDatum(item):
+	def TextDatum(self, fileQueue, datumQueue):
+		count = 0
 		while  True:
-			return None
+			data,label,key = list(fileQueue.get())
+			count+=1
+			datum = Datum()
+			text_datum = daum.numeric
+			text_datum.identifier = str(key)
+			text_datum.size.dim = 1
+			text_datum.data = np.array(data[key]).tobytes()
 
+			labelDatum = datum.classs
+			labelDatum.identifier = str(key)
+			labelDatum.nlabel = label
 
+			item = tuple([text_datum,labelDatum,key])
+			datumQueue.put(item)
+			fileQueue.task_done()
+			
 class writeWorker():
 	'''
 	A worker for writing the datum to lmdb database
@@ -232,7 +274,9 @@ if __name__ == '__main__':
 			read_worker = Thread(target=readWorker.readNumeric(fileQueue, data_dir, labels))
 			datum_worker = Thread(target=datumWorker.NumericDatum, args=(fileQueue, datumQueue,))
 		elif dataType == '--text':
-			read_worker = Thread(target=readWorker.readText, args=(fileQueue,))
+			text = raw_input("Enter the input: ")
+			label = raw_input("Enter the label: ")
+			read_worker = Thread(target=readWorker.readText, args=(fileQueue,data_dir,text,label))
 			datum_worker = Thread(target=datumWorker.TextDatum, args=(fileQueue, datumQueue,))
 		else:
 			print "Error: Incorrect or no tag given"

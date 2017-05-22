@@ -9,14 +9,9 @@ from Queue import Queue
 
 class readWorker():
 	'''
-	A thread for reading the data
+	A worker for reading the data
 	'''
-	# imageNumber: number of image read (in case of multiple subdirs of labeldirs)
 	def readImage(self, fileQueue, data_dir, nInputPerRecord):
-		'''
-		Reads the files and pushes them into the file queue
-		'''
-		# while True:
 		if nInputPerRecord == 1:
 			'''
 			Directly read the images from each subdirectory (label directory)
@@ -37,13 +32,11 @@ class readWorker():
 			subdirs = [os.path.abspath(os.path.join(data_dir, subdir)) for subdir in os.listdir(data_dir)]
 
 			# test
-			# try:
-			# 	print "\nInside readImage, subdirs:", len(subdirs)
-			# 	print "\nnInputPerRecord:", nInputPerRecord
-			# 	assert nInputPerRecord == len(subdirs)
-			# except AssertionError:
-			# 	print "Error: Number of Images per record does not match number of subdirectories"
-			# 	return
+			try:
+				assert nInputPerRecord == len(subdirs)
+			except AssertionError:
+				print "Error: Number of Images per record does not match number of subdirectories"
+				return
 
 			ssdirs = [os.listdir(subdir) for subdir in subdirs]
 
@@ -116,7 +109,7 @@ class readWorker():
 
 class datumWorker():
 	'''
-	A thread for preparing the datum
+	A worker for preparing the datum
 	'''
 	def ImageDatum(self, fileQueue, datumQueue):
 		count = 0
@@ -177,6 +170,9 @@ class datumWorker():
 
 
 class writeWorker():
+	'''
+	A worker for writing the datum to lmdb database
+	'''
 	def __init__(self, datumQueue, env, dbQueue):
 		while True:
 			item = list(datumQueue.get())
@@ -255,125 +251,4 @@ if __name__ == '__main__':
 		write_worker.start()
 		print "Write Worker started"
 
-		# fileQueue.join()
-		# datumQueue.join()
-
-		# env.close()
-
 		print "Hajime (https://translate.google.com/#ja/en/Hajime)"
-
-
-
-
-
-
-
-
-
-
-
-def serializeImage(data_dir, env):
-	with env.begin(write=True) as txn:
-		key = 0
-	
-		n = int(raw_input("How many input images per training record? : "))
-		if True:
-			return
-		else:
-			'''
-			Read the images from each subdirectory (label directory) of each subdirectory
-			'''
-			subdirs = [os.path.abspath(os.path.join(data_dir, subdir)) for subdir in os.listdir(data_dir)]
-
-			ssdirs = [os.listdir(subdir) for subdir in subdirs]
-
-			labeldirs = []
-
-			for ssdir, subdir in zip(ssdirs, subdirs):
-				labeldirs.append([os.path.join(subdir, ssd) for ssd in ssdir])
-
-			# Class of the image
-			# took the first class to be zero (can be changed to 1)
-			Class = 0
-			images = []
-
-			for label_list in [list(i) for i in zip(*labeldirs)]:
-				images = zip(*[os.listdir(labeldir) for labeldir in label_list])
-
-				image_paths = []
-
-				for idx, image in enumerate(images):
-					image_paths = []
-					for im, rootPath in zip(image, label_list):
-						image_paths.append(os.path.join(rootPath, im))
-					
-					datum = Datum()
-					LabelDatum = datum.classs
-					LabelDatum.identifier = str(idx)
-					LabelDatum.slabel = image_paths[0].split('/')[-2]
-
-					for image_path in image_paths:
-						im = cv2.imread(image_path)
-						dims = list(im.shape)
-						ImageDatum = datum.imgdata.add()
-						ImageDatum.identifier = str(idx)
-						ImageDatum.channels = dims[2]
-						ImageDatum.height = dims[0]
-						ImageDatum.width = dims[1]
-						ImageDatum.data = im.tobytes()
-
-					str_id = '{:08}'.format(idx)
-					txn.put(str_id.encode('ascii'), datum.SerializeToString())
-
-	# close the environment
-	env.close()
-
-
-def SerializeNumeric(file):
-
-	# works for single labels
-	# have to work on multiple labels
-
-	env = lmdb.open('lmdb/datumdb', max_dbs=2)
-	labeldb = env.open_db('labeldb')
-
-	# ask for the columns which are labels
-	labels = [str(x) for x in raw_input("Labels (sep by commas): ").split()]
-
-	# load the data
-	df = pd.read_csv(file)
-	labeldf = df.pop(labels[0])		# separate the label
-
-	for idx in xrange(len(df)):
-		print "Iter #{}".format(idx)
-		datum = Datum()
-		LabelDatum = datum.classs
-		LabelDatum.identifier = str(idx)
-		LabelDatum.nlabel = labeldf[idx]
-
-		NumericDatum = datum.numeric
-		NumericDatum.identifier = str(idx)
-
-		x = df.iloc[idx]
-		x = x.to_frame()
-		x = x.to_records(index=False)
-
-		NumericDatum.size.dim = len(labels)
-		NumericDatum.data = x.tobytes()
-
-		str_id = '{:08}'.format(idx)
-
-		# push the label to labeldb
-		with env.begin(write=True, db=labeldb) as txn:
-			print "begin label #{}".format(idx)
-			txn.put(str_id.encode('ascii'), LabelDatum.SerializeToString())
-			print "end label #{}".format(idx)
-
-		# push the data to datadb
-		with env.begin(write=True) as txn:
-			print "begin datum #{}".format(idx)
-			txn.put(str_id.encode('ascii'), NumericDatum.SerializeToString())
-			print "end datum #{}".format(idx)
-
-	# close the environment
-	env.close()

@@ -79,7 +79,7 @@ class readWorker():
 					print "Error:", e
 			elif file.endswith(".json"):
 				try:
-					df = json.load(file)
+					df = json.load(open(file))
 				except IOError as e:
 					print "Error:", e
 			else:
@@ -106,34 +106,38 @@ class readWorker():
 				fileQueue.put(item)
 
 	def readText(self, fileQueue, file,name,text,label):
-		while True:
-			if file.endswith(".csv"):
-				try:
-					df = pd.read_csv(file)
-				except IOError as e:
-					print "Error:", e
-			elif file.endswith(".json"):
-				try:
-					df = json.load(file)
-				except IOError as e:
-					print "Error:", e
-			else:
-				print "Error: Provide the file in valid format (.csv or .json)"
-				return
-			vectorizer = CountVectorizer(token_pattern=u"(?u)\\b\\w+\\b")
+		if file.endswith(".csv"):
+			try:
+				df = pd.read_csv(file)
+			except IOError as e:
+				print "Error:", e
+		elif file.endswith(".json"):
+			try:
+				df = json.load(open(file))
+			except IOError as e:
+				print "Error:", e
+		else:
+			print "Error: Provide the file in valid format (.csv or .json)"
+			return
 
-			caps=[]
-			for i in df[name]:
-				caps.append(i[text])
-			train_features = vectorizer.fit_transform(caps)
-			vecs = train_features.toarray()
+		vectorizer = CountVectorizer(token_pattern=u"(?u)\\b\\w+\\b")
 
-			for idx in xrange(len(df)):
-				data = vecs[idx]
-				label = df[name][idx][label]
-				item = tuple([data,label,idx])
-				print "Pushing item into File Queue..."
-				fileQueue.put(item)
+		caps = []
+		for i in df[name]:
+			caps.append(i[text])
+
+		train_features = vectorizer.fit_transform(caps)
+		vecs = train_features.toarray()
+
+		for idx in xrange(len(df[name])):
+			print type(idx), idx
+			textDatum = vecs[idx]
+			print textDatum
+			textLabel = df[name][idx][label]
+			print textLabel
+			item = tuple([textDatum, textLabel, idx])
+			print "Pushing item {} into File Queue...".format(idx + 1)
+			fileQueue.put(item)
 
 class datumWorker():
 	'''
@@ -142,9 +146,9 @@ class datumWorker():
 	def ImageDatum(self, fileQueue, datumQueue):
 		count = 0
 		while True:
-			ndarray, slabel, imageNumber, key = list(fileQueue.get())
+			data, slabel, imageNumber, key = list(fileQueue.get())
 			count += 1
-			dims = list(ndarray.shape)
+			dims = list(data.shape)
 
 			datum = Datum()
 
@@ -162,7 +166,7 @@ class datumWorker():
 			print "datum #{}".format(count)
 			print "\ndatum:\n", datum
 
-			imageDatum.data = ndarray.tobytes()
+			imageDatum.data = data.tobytes()
 
 			item = tuple([imageDatum, labelDatum, imageNumber, key])
 			datumQueue.put(item)
@@ -195,19 +199,24 @@ class datumWorker():
 	def TextDatum(self, fileQueue, datumQueue):
 		count = 0
 		while  True:
-			data,label,key = list(fileQueue.get())
-			count+=1
+			data, label, key = list(fileQueue.get())
+			count += 1
+
 			datum = Datum()
-			text_datum = daum.numeric
-			text_datum.identifier = str(key)
-			text_datum.size.dim = 1
-			text_datum.data = np.array(data[key]).tobytes()
+			textDatum = datum.numeric
+			textDatum.identifier = str(key)
+			textDatum.size.dim = 1
+			textDatum.data = np.array(data).tobytes()
 
 			labelDatum = datum.classs
 			labelDatum.identifier = str(key)
 			labelDatum.nlabel = label
 
-			item = tuple([text_datum,labelDatum,key])
+			# testing
+			print "datum #{}".format(count)
+			print "\ndatum:\n", datum
+
+			item = tuple([textDatum, labelDatum, key])
 			datumQueue.put(item)
 			fileQueue.task_done()
 			
@@ -228,15 +237,15 @@ class writeWorker():
 				with env.begin(write=True) as txn:
 					txn.put(str(key).encode('ascii'), datum.SerializeToString())
 
-				labeldbHandle = dbList[-1]
-				with env.begin(write=True, db=labeldbHandle) as txn:
+				labelDBHandle = dbList[-1]
+				with env.begin(write=True, db=labelDBHandle) as txn:
 					txn.put(str(key).encode('ascii'), label.SerializeToString())
 			else:
 				dbHandle = dbList[dbId - 1]
 				with env.begin(write=True, db=dbHandle) as txn:
 					txn.put(str(key).encode('ascii'), datum.SerializeToString())
 
-
+			print "Datum #{} written to lmdb".format(key)
 
 
 if __name__ == '__main__':
@@ -269,15 +278,36 @@ if __name__ == '__main__':
 		if dataType == '--image':
 			read_worker = Thread(target=readWorker.readImage, args=(fileQueue, data_dir, nInputPerRecord))
 			datum_worker = Thread(target=datumWorker.ImageDatum, args=(fileQueue, datumQueue,))
+
 		elif dataType == '--numeric':
 			labels = [str(i) for i in raw_input("Mention the output labels: ")]
 			read_worker = Thread(target=readWorker.readNumeric(fileQueue, data_dir, labels))
 			datum_worker = Thread(target=datumWorker.NumericDatum, args=(fileQueue, datumQueue,))
+
 		elif dataType == '--text':
-			text = raw_input("Enter the input: ")
-			label = raw_input("Enter the label: ")
-			read_worker = Thread(target=readWorker.readText, args=(fileQueue,data_dir,text,label))
+			print "A typical json file body:\n" + \
+			"{\n" + \
+			"\t'name': [\n" + \
+			"\t\t{\n" + \
+			"\t\t\t'text': 'sample input text'\n" + \
+			"\t\t\t'label': 'label for above text'\n" + \
+			"},\n" + \
+			"\t\t{\n" + \
+			"\t\t\t'text': ' ... '\n" + \
+			"\t\t\t'label': '' ... '\n" + \
+			"},\n" + \
+			"\t\t... \n" + \
+			"\t]\n" + \
+			"}"
+			
+			print "Enter the fields accordingly."
+
+			name = str(raw_input("Enter the name: ").strip())
+			text = str(raw_input("Enter the input: ").strip())
+			label = str(raw_input("Enter the label: ").strip())
+			read_worker = Thread(target=readWorker.readText, args=(fileQueue,data_dir,name,text,label))
 			datum_worker = Thread(target=datumWorker.TextDatum, args=(fileQueue, datumQueue,))
+
 		else:
 			print "Error: Incorrect or no tag given"
 			print "Usage: python serialize.py [--image || --numeric || --text] [data_dir || file ..]"
@@ -285,13 +315,13 @@ if __name__ == '__main__':
 
 		write_worker = Thread(target=writeWorker, args=(datumQueue, env, dbList))
 
-		read_worker.setDaemon(True)
+		# read_worker.setDaemon(True)
 		read_worker.start()
 		print "Read Worker started"
-		datum_worker.setDaemon(True)
+		# datum_worker.setDaemon(True)
 		datum_worker.start()
 		print "Datum Worker started"
-		write_worker.setDaemon(True)
+		# write_worker.setDaemon(True)
 		write_worker.start()
 		print "Write Worker started"
 

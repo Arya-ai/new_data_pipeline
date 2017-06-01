@@ -33,4 +33,5 @@ message Class {
   required string identifier = 1;
   optional string slabel = 2;
   optional uint32 nlabel = 3;
+  optional bytes multilabel = 4;
 }

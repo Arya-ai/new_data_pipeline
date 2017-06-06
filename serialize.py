@@ -81,7 +81,7 @@ class readWorker():
                             logger.error("Error:", e)
                         slabel = imagePath.split('/')[-2]
                         item = tuple([ndarray, slabel, imageNumber, key])       # pass imagepath along with class label
-                        logger.debug("ReadWorker: Pushing item {} into File Queue...".format(key))
+                        logger.debug("ReadWorker: Pushed item {} into File Queue...".format(key))
                         fileQueue.put(item)
                         imageNumber -= 1        # decrement for the thread to distinguish
 
@@ -112,15 +112,21 @@ class readWorker():
         labeldf = df.pop(label)
 
         for idx in xrange(len(df)):
-            data = df.iloc[idx]
-            data = data.to_frame()
-            data = data.to_records(index=False)
+            data = df.iloc[idx].to_frame.to_records(index=False)
+            '''
+            this will return a numpy record array which needs to be converted to a numpy array
+            for it to be converted back from a byte array
+            '''
+            # retrieve the datatype
+            dt = data.dtype.fields[u'0'][0]
+            # convert into numpy array
+            np_data = np.array(data.view(dt))
 
-            label = labeldf.iloc[idx]
+            label = labeldf.iloc[idx]       # for single label
             # label = label.to_frame()
             # label = label.to_records(index=False)
 
-            item = tuple([data, label, idx])
+            item = tuple([np_data, label, idx])
             logger.debug("Pushed item {} into File Queue...".format(idx + 1))
             fileQueue.put(item)
 
@@ -185,11 +191,6 @@ class datumWorker():
             imageDatum.channels = dims[2]
             imageDatum.height = dims[0]
             imageDatum.width = dims[1]
-
-            # testing
-            logger.debug("datum #{}".format(count))
-            logger.debug("\ndatum:{}\n".format(datum))
-
             imageDatum.data = data.tobytes()
 
             item = tuple([imageDatum, labelDatum, imageNumber, key])
@@ -233,7 +234,7 @@ class datumWorker():
             labelDatum = datum.classs
             labelDatum.identifier = str(key)
             labelDatum.nlabel = label
-            
+
             item = tuple([textDatum, labelDatum, key])
             datumQueue.put(item)
             logger.debug("Pushed datum #{} into Datum Queue".format(count))

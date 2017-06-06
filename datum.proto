@@ -3,7 +3,8 @@ syntax="proto2";
 message Datum {
   optional Numeric numeric = 10;
   repeated ImgData imgdata = 11;
-  optional Class classs = 12;
+  optional VideoData videodata = 12;
+  optional Class classs = 13;
 }
 
 message ImgData{
@@ -18,6 +19,16 @@ message ImgData{
     // If true data contains an encoded image that need to be decoded
     optional bool encoded = 7 [default = false];
   }
+
+message VideoData{
+    required string identifier = 1;
+    optional uint32 frames = 2;
+    optional uint32 height = 3;
+    optional uint32 width = 4;
+    optional uint32 channels = 5;
+    optional float duration = 6;
+    optional bytes data = 7;
+}
 
 message Numeric{
   required string identifier = 1;

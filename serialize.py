@@ -89,6 +89,7 @@ class readWorker():
 
     def readNumeric(self, fileQueue, data_dir, options, readFlag):
         label = options['label']
+        data_key = options['data_key']
         file = os.path.join(data_dir, os.listdir(data_dir)[0])
         if file.endswith('.csv'):
             try:
@@ -97,7 +98,13 @@ class readWorker():
                 logger.error("Error reading csv file: ", exc_info=True)
         elif file.endswith('.json'):
             try:
-                df = json.load(open(file))
+                json_dict = json.load(open(file))
+                cols = json_dict[data_key][0].keys()
+                rows = []
+                for row in json_dict[data_key]:
+                    rows.append(row.values())
+
+                df = pd.DataFrame(rows, columns=cols)
             except IOError as e:
                 logger.error("Error opening json file: ", exc_info=True)
         else:
@@ -270,22 +277,36 @@ class writeWorker():
 
 class Serialize():
 
-    def __init__(self, nInputPerRecord):
+    def __init__(self, nInputPerRecord, multi_input, nOutputPerRecord, multi_output):
+        self.multi_input = multi_input
+        self.multi_output = multi_output
+
         self.nInputPerRecord = int(nInputPerRecord)
+        self.nOutputPerRecord = int(nOutputPerRecord)
+
         # config: 2 queues, 3 workers
         self.fileQueue = Queue()
         self.datumQueue = Queue()
+        # because can have multiple input or output data to be read
+        self.read_workers = []
+        # need as much datum_workers as well because processing is different for different types
+        self.datum_workers = []
         # dbs for each input per record + 1 for label
-        self.env = lmdb.open('lmdb/datumdb0', max_dbs=nInputPerRecord + 1)
-        self.readFlag = manager.Value('i', 0)
+        
+        self.env = lmdb.open('lmdb/datumdb0', max_dbs=nInputPerRecord + nOutputPerRecord)
+
+        if multi_input or multi_output:
+            self.readFlags = manager.list([0]*(nInputPerRecord + nOutputPerRecord))     # create readFlags for each worker
+        else:
+            self.readFlags = manager.list([0]*nInputPerRecord)     # create readFlags for just one read_worker
+
         self.doneFlag = manager.Value('i', 0)
-        logger.debug("Serialize Instance created with {} dbs".format(nInputPerRecord + 1))
+        logger.debug("Serialize Instance created with {} dbs".format(nInputPerRecord + nOutputPerRecord))
 
     def writeToLmdb(self, options):
         data_dir, args = options
         logger.debug("Data directory: " + str(data_dir))
         logger.info("Writing to LMDB")
-        dataType = args['dataType'][0]
 
         dbList = []
         # create dbs for datums
@@ -293,30 +314,106 @@ class Serialize():
             dbName = 'datumdb' + str(i)
             dbList.append(self.env.open_db(dbName))
         # create labeldb
-        dbList.append(self.env.open_db('labeldb'))
+        for i in xrange(1, self.nOutputPerRecord + 1):
+            dbName = 'labeldb' + str(i)
+            dbList.append(self.env.open_db(dbName))
 
-        if dataType == 'image':
-            self.read_worker = Thread(target=readWorker().readImage, args=(self.fileQueue, data_dir, self.nInputPerRecord, self.readFlag))
-            self.datum_worker = Thread(target=datumWorker().ImageDatum, args=(self.fileQueue, self.datumQueue,))
+        if not multi_input and not multi_output:
+            '''
+            single-input type, i.e. output should be inferred
+            '''
+            input_dict = args['input'][0]
+            dataType = input_dict['dataType']
 
-        elif dataType == 'numeric':
-            # labels = [str(label) for label in args['labels'][0].split(' ')]
-            label = args['label'][0]
-            options = {'label': label}
-            self.read_worker = Thread(target=readWorker().readNumeric(self.fileQueue, data_dir, options, self.readFlag))
-            self.datum_worker = Thread(target=datumWorker().NumericDatum, args=(self.fileQueue, self.datumQueue,))
+            if dataType == 'image':
+                self.read_workers.append(Thread(target=readWorker().readImage, args=(self.fileQueue, data_dir, self.nInputPerRecord, self.readFlag)))
+                self.datum_workers.append(Thread(target=datumWorker().ImageDatum, args=(self.fileQueue, self.datumQueue,)))
 
-        elif dataType == 'text':
-            name = str(args['name']).strip()
-            text = str(args['text']).strip()
-            label = str(args['label']).strip()
-            options = {'name': name, 'text': text, 'label': label}
-            self.read_worker = Thread(target=readWorker().readText, args=(self.fileQueue, data_dir, options, self.readFlag))
-            self.datum_worker = Thread(target=datumWorker().TextDatum, args=(self.fileQueue, self.datumQueue,))
+            elif dataType == 'numeric':
+                self.read_workers.append(Thread(target=readWorker().readNumeric(self.fileQueue, data_dir, input_dict, self.readFlag)))
+                self.datum_workers.append(Thread(target=datumWorker().NumericDatum, args=(self.fileQueue, self.datumQueue,)))
+
+            elif dataType == 'text':
+                self.read_workers.append(Thread(target=readWorker().readText, args=(self.fileQueue, data_dir, input_dict, self.readFlag)))
+                self.datum_workers.append(Thread(target=datumWorker().TextDatum, args=(self.fileQueue, self.datumQueue,)))
+
+            else:
+                logger.error(" :Incorrect or no tag given. Specify dataType in request.")
+                sys.exit(-1)
 
         else:
-            logger.error(" :Incorrect or no tag given. Specify dataType in request.")
-            sys.exit(-1)
+            '''
+            multi-input multi-output type
+            Provide details for input and output streams.
+            '''
+            '''
+            Image Bindings explained
+            ========================
+            File formats: .csv or .json
+
+            .json types:
+            ------------ 
+            1. list of bindings(dicts)
+                example:
+                [
+                    {
+                        "file": "train_0.jpg",
+                        "key": "0"
+                    },
+                    {
+                        "file": "train_1.jpg",
+                        "key": "1"
+                    }
+                ]
+
+                Things you'll provide in the form: image_binding filename
+
+            2. A dict with a key holding the list of bindings
+                example:
+                {
+                    "bindings":
+                    [
+                        {
+                            "file": "train_0.jpg",
+                            "key": "0"
+                        },
+                        {
+                            "file": "train_1.jpg",
+                            "key": "1"
+                        }
+                    ]
+                }
+
+                Things you'll provide in the form: image_binding filename, data_key
+            '''
+
+            if 'image_binding' in args:
+                image_binding_dict = args['image_binding']
+
+            if image_binding_file.endswith('.csv'):
+                image_binding_df = pd.read_csv(image_binding_dict['file'])
+            elif image_binding_file.endswith('.json'):
+                parsed_json = json.load(image_binding_dict['file'])
+                if isinstance(parsed_json, dict) and 'data_key' in image_binding_dict:      # second case
+                    # just a sanity check: if it's a dict, data_key has to be provided
+                    bindings_dict = parsed_json[image_binding_dict['data_key']]
+                else:
+                    bindings_dict = parsed_json
+
+                cols = bindings_dict[0].keys()
+                bindings = []
+                for binding_dict in bindings_dict:
+                    bindings.append(binding_dict.values())
+
+                image_binding_df = pd.DataFrame(bindings, columns=cols)
+
+            # print image_binding_df.head()
+            # for input_data in args['input']:
+            #     dataType = input_data['dataType']
+
+
+
+
 
         self.write_worker = Thread(target=writeWorker, args=(self.datumQueue, self.env, dbList))
 

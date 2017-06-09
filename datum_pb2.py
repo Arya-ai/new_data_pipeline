@@ -13,7 +13,7 @@ from google.protobuf import descriptor_pb2
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='datum.proto',
   package='',
-  serialized_pb='\n\x0b\x64\x61tum.proto\"U\n\x05\x44\x61tum\x12\x19\n\x07numeric\x18\n \x01(\x0b\x32\x08.Numeric\x12\x19\n\x07imgdata\x18\x0b \x03(\x0b\x32\x08.ImgData\x12\x16\n\x06\x63lasss\x18\x0c \x01(\x0b\x32\x06.Class\"\x88\x01\n\x07ImgData\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x10\n\x08\x63hannels\x18\x02 \x01(\r\x12\x0e\n\x06height\x18\x03 \x01(\r\x12\r\n\x05width\x18\x04 \x01(\r\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\x12\n\nfloat_data\x18\x06 \x03(\x02\x12\x16\n\x07\x65ncoded\x18\x07 \x01(\x08:\x05\x66\x61lse\"@\n\x07Numeric\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x13\n\x04size\x18\x02 \x01(\x0b\x32\x05.Size\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"\x16\n\x04Size\x12\x0e\n\x03\x64im\x18\x01 \x01(\r:\x01\x31\"O\n\x05\x43lass\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x0e\n\x06slabel\x18\x02 \x01(\t\x12\x0e\n\x06nlabel\x18\x03 \x01(\r\x12\x12\n\nmultilabel\x18\x04 \x01(\x0c')
+  serialized_pb='\n\x0b\x64\x61tum.proto\"t\n\x05\x44\x61tum\x12\x19\n\x07numeric\x18\n \x01(\x0b\x32\x08.Numeric\x12\x19\n\x07imgdata\x18\x0b \x03(\x0b\x32\x08.ImgData\x12\x1d\n\tvideodata\x18\x0c \x01(\x0b\x32\n.VideoData\x12\x16\n\x06\x63lasss\x18\r \x01(\x0b\x32\x06.Class\"\x88\x01\n\x07ImgData\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x10\n\x08\x63hannels\x18\x02 \x01(\r\x12\x0e\n\x06height\x18\x03 \x01(\r\x12\r\n\x05width\x18\x04 \x01(\r\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\x12\n\nfloat_data\x18\x06 \x03(\x02\x12\x16\n\x07\x65ncoded\x18\x07 \x01(\x08:\x05\x66\x61lse\"\x80\x01\n\tVideoData\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x0e\n\x06\x66rames\x18\x02 \x01(\r\x12\x0e\n\x06height\x18\x03 \x01(\r\x12\r\n\x05width\x18\x04 \x01(\r\x12\x10\n\x08\x63hannels\x18\x05 \x01(\r\x12\x10\n\x08\x64uration\x18\x06 \x01(\x02\x12\x0c\n\x04\x64\x61ta\x18\x07 \x01(\x0c\"@\n\x07Numeric\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x13\n\x04size\x18\x02 \x01(\x0b\x32\x05.Size\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"\x16\n\x04Size\x12\x0e\n\x03\x64im\x18\x01 \x01(\r:\x01\x31\"O\n\x05\x43lass\x12\x12\n\nidentifier\x18\x01 \x02(\t\x12\x0e\n\x06slabel\x18\x02 \x01(\t\x12\x0e\n\x06nlabel\x18\x03 \x01(\r\x12\x12\n\nmultilabel\x18\x04 \x01(\x0c')
 
 
 
@@ -40,8 +40,15 @@ _DATUM = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='classs', full_name='Datum.classs', index=2,
+      name='videodata', full_name='Datum.videodata', index=2,
       number=12, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='classs', full_name='Datum.classs', index=3,
+      number=13, type=11, cpp_type=10, label=1,
       has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -56,7 +63,7 @@ _DATUM = _descriptor.Descriptor(
   is_extendable=False,
   extension_ranges=[],
   serialized_start=15,
-  serialized_end=100,
+  serialized_end=131,
 )
 
 
@@ -125,8 +132,78 @@ _IMGDATA = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=103,
-  serialized_end=239,
+  serialized_start=134,
+  serialized_end=270,
+)
+
+
+_VIDEODATA = _descriptor.Descriptor(
+  name='VideoData',
+  full_name='VideoData',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='identifier', full_name='VideoData.identifier', index=0,
+      number=1, type=9, cpp_type=9, label=2,
+      has_default_value=False, default_value=unicode("", "utf-8"),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='frames', full_name='VideoData.frames', index=1,
+      number=2, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='height', full_name='VideoData.height', index=2,
+      number=3, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='width', full_name='VideoData.width', index=3,
+      number=4, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='channels', full_name='VideoData.channels', index=4,
+      number=5, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='duration', full_name='VideoData.duration', index=5,
+      number=6, type=2, cpp_type=6, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='data', full_name='VideoData.data', index=6,
+      number=7, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value="",
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  extension_ranges=[],
+  serialized_start=273,
+  serialized_end=401,
 )
 
 
@@ -167,8 +244,8 @@ _NUMERIC = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=241,
-  serialized_end=305,
+  serialized_start=403,
+  serialized_end=467,
 )
 
 
@@ -195,8 +272,8 @@ _SIZE = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=307,
-  serialized_end=329,
+  serialized_start=469,
+  serialized_end=491,
 )
 
 
@@ -244,16 +321,18 @@ _CLASS = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=331,
-  serialized_end=410,
+  serialized_start=493,
+  serialized_end=572,
 )
 
 _DATUM.fields_by_name['numeric'].message_type = _NUMERIC
 _DATUM.fields_by_name['imgdata'].message_type = _IMGDATA
+_DATUM.fields_by_name['videodata'].message_type = _VIDEODATA
 _DATUM.fields_by_name['classs'].message_type = _CLASS
 _NUMERIC.fields_by_name['size'].message_type = _SIZE
 DESCRIPTOR.message_types_by_name['Datum'] = _DATUM
 DESCRIPTOR.message_types_by_name['ImgData'] = _IMGDATA
+DESCRIPTOR.message_types_by_name['VideoData'] = _VIDEODATA
 DESCRIPTOR.message_types_by_name['Numeric'] = _NUMERIC
 DESCRIPTOR.message_types_by_name['Size'] = _SIZE
 DESCRIPTOR.message_types_by_name['Class'] = _CLASS
@@ -269,6 +348,12 @@ class ImgData(_message.Message):
   DESCRIPTOR = _IMGDATA
 
   # @@protoc_insertion_point(class_scope:ImgData)
+
+class VideoData(_message.Message):
+  __metaclass__ = _reflection.GeneratedProtocolMessageType
+  DESCRIPTOR = _VIDEODATA
+
+  # @@protoc_insertion_point(class_scope:VideoData)
 
 class Numeric(_message.Message):
   __metaclass__ = _reflection.GeneratedProtocolMessageType

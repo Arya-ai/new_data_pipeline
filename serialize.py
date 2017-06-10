@@ -37,7 +37,7 @@ class readWorker():
                     imagePath = os.path.join(labeldir, image)
                     ndarray = cv2.imread(imagePath)
                     slabel = imagePath.split('/')[-2]
-                    item = tuple([ndarray, slabel, imageNumber, key])
+                    item = tuple(['image', ndarray, slabel, imageNumber, key])
                     logger.debug("Pushed item {} into File Queue...".format(key))
                     fileQueue.put(item)     # pass imagepath along with class label
 
@@ -80,7 +80,7 @@ class readWorker():
                         except IOError as e:
                             logger.error("Error:", e)
                         slabel = imagePath.split('/')[-2]
-                        item = tuple([ndarray, slabel, imageNumber, key])       # pass imagepath along with class label
+                        item = tuple(['image', ndarray, slabel, imageNumber, key])       # pass imagepath along with class label
                         logger.debug("ReadWorker: Pushed item {} into File Queue...".format(key))
                         fileQueue.put(item)
                         imageNumber -= 1        # decrement for the thread to distinguish
@@ -133,7 +133,7 @@ class readWorker():
             # label = label.to_frame()
             # label = label.to_records(index=False)
 
-            item = tuple([np_data, label, idx])
+            item = tuple(['numeric', np_data, label, idx])
             logger.debug("Pushed item {} into File Queue...".format(idx + 1))
             fileQueue.put(item)
 
@@ -170,7 +170,7 @@ class readWorker():
         for idx in xrange(len(df[name])):
             textDatum = vecs[idx]
             textLabel = df[name][idx][label]
-            item = tuple([textDatum, textLabel, idx])
+            item = tuple(['text', textDatum, textLabel, idx])
             logger.debug("Pushed item {} into File Queue...".format(idx + 1))
             fileQueue.put(item)
 
@@ -180,78 +180,88 @@ class datumWorker():
     '''
     A worker for preparing the datum
     '''
-    def ImageDatum(self, fileQueue, datumQueue):
+
+    def __init__(self, fileQueue, datumQueue):
         count = 0
         while True:
-            data, slabel, imageNumber, key = list(fileQueue.get())
-            count += 1
-            dims = list(data.shape)
+            received = fileQueue.get()
+            count += 1 
+            dataType = received[0]
+            received = received[1:].append(count)
 
-            datum = Datum()
+            if dataType == 'image':
+                self.ImageDatum(received, fileQueue, datumQueue)
+            elif dataType == 'numeric':
+                self.NumericDatum(received, fileQueue, datumQueue)
+            elif dataType == 'text':
+                self.TextDatum(received, fileQueue, datumQueue)
+            else:
+                logger.debug("Not the dataType I was expecting. Something broke.")
+                sys.exit(-1)
 
-            labelDatum = datum.classs
-            labelDatum.identifier = str(key)
-            labelDatum.slabel = slabel
+    def ImageDatum(self, received, fileQueue, datumQueue):
+        data, slabel, imageNumber, key, count = received
+        count += 1
+        dims = list(data.shape)
 
-            imageDatum = datum.imgdata.add()
-            imageDatum.identifier = str(key)
-            imageDatum.channels = dims[2]
-            imageDatum.height = dims[0]
-            imageDatum.width = dims[1]
-            imageDatum.data = data.tobytes()
+        datum = Datum()
 
-            item = tuple([imageDatum, labelDatum, imageNumber, key])
-            datumQueue.put(item)
-            logger.debug("DatumWorker: Pushed datum #{} into Datum Queue".format(count))
-            fileQueue.task_done()       # let the fileQueue know item has been processed and is safe to delete
+        labelDatum = datum.classs
+        labelDatum.identifier = str(key)
+        labelDatum.slabel = slabel
+
+        imageDatum = datum.imgdata.add()
+        imageDatum.identifier = str(key)
+        imageDatum.channels = dims[2]
+        imageDatum.height = dims[0]
+        imageDatum.width = dims[1]
+        imageDatum.data = data.tobytes()
+
+        item = tuple([imageDatum, labelDatum, imageNumber, key])
+        datumQueue.put(item)
+        logger.debug("DatumWorker: Pushed datum #{} into Datum Queue".format(count))
+        fileQueue.task_done()       # let the fileQueue know item has been processed and is safe to delete
 
     def NumericDatum(self, fileQueue, datumQueue):
-        count = 0
-        while True:
-            data, label, key = list(fileQueue.get())
-            count += 1
-            datum = Datum()
-            labelDatum = datum.classs
-            labelDatum.identifier = str(key)
-            labelDatum.nlabel = label
+        data, label, key, count = received
+        datum = Datum()
+        labelDatum = datum.classs
+        labelDatum.identifier = str(key)
+        labelDatum.nlabel = label
 
-            numericDatum = datum.numeric
-            numericDatum.identifier = str(key)
-            # numericDatum.size.dim = label.shape[0]
-            numericDatum.size.dim = 1       # currently just for 1 label
-            numericDatum.data = data.tobytes()
+        numericDatum = datum.numeric
+        numericDatum.identifier = str(key)
+        # numericDatum.size.dim = label.shape[0]
+        numericDatum.size.dim = 1       # currently just for 1 label
+        numericDatum.data = data.tobytes()
 
-            item = tuple([numericDatum, labelDatum, key])
-            datumQueue.put(item)
-            logger.debug("Pushed datum #{} into Datum Queue".format(count))
-            fileQueue.task_done()
+        item = tuple([numericDatum, labelDatum, key])
+        datumQueue.put(item)
+        logger.debug("Pushed datum #{} into Datum Queue".format(count))
+        fileQueue.task_done()
 
     def TextDatum(self, fileQueue, datumQueue):
-        count = 0
-        while  True:
-            data, label, key = list(fileQueue.get())
-            count += 1
+        data, label, key, count = received
+        datum = Datum()
+        textDatum = datum.numeric
+        textDatum.identifier = str(key)
+        textDatum.size.dim = 1
+        textDatum.data = np.array(data).tobytes()
 
-            datum = Datum()
-            textDatum = datum.numeric
-            textDatum.identifier = str(key)
-            textDatum.size.dim = 1
-            textDatum.data = np.array(data).tobytes()
+        labelDatum = datum.classs
+        labelDatum.identifier = str(key)
+        labelDatum.nlabel = label
 
-            labelDatum = datum.classs
-            labelDatum.identifier = str(key)
-            labelDatum.nlabel = label
-
-            item = tuple([textDatum, labelDatum, key])
-            datumQueue.put(item)
-            logger.debug("Pushed datum #{} into Datum Queue".format(count))
-            fileQueue.task_done()
+        item = tuple([textDatum, labelDatum, key])
+        datumQueue.put(item)
+        logger.debug("Pushed datum #{} into Datum Queue".format(count))
+        fileQueue.task_done()
             
 class writeWorker():
     '''
     A worker for writing the datum to lmdb database
     '''
-    def __init__(self, datumQueue, env, dbList):
+    def __init__(self, datumQueue, env, dbHandles):
         while True:
             item = list(datumQueue.get())
             dbId = 0        # which db to push to in case of multiple inputs per record
@@ -264,11 +274,11 @@ class writeWorker():
                 with env.begin(write=True) as txn:
                     txn.put(str(key).encode('ascii'), datum.SerializeToString())
 
-                labelDBHandle = dbList[-1]
+                labelDBHandle = dbHandles[-1]
                 with env.begin(write=True, db=labelDBHandle) as txn:
                     txn.put(str(key).encode('ascii'), label.SerializeToString())
             else:
-                dbHandle = dbList[dbId - 1]
+                dbHandle = dbHandles[dbId - 1]
                 with env.begin(write=True, db=dbHandle) as txn:
                     txn.put(str(key).encode('ascii'), datum.SerializeToString())
 
@@ -277,9 +287,9 @@ class writeWorker():
 
 class Serialize():
 
-    def __init__(self, nInputPerRecord, multi_input, nOutputPerRecord, multi_output):
-        self.multi_input = multi_input
-        self.multi_output = multi_output
+    def __init__(self, nInputPerRecord=1, multi_input=False, nOutputPerRecord=1, multi_output=False):
+        self.multi_input = bool(multi_input)
+        self.multi_output = bool(multi_output)
 
         self.nInputPerRecord = int(nInputPerRecord)
         self.nOutputPerRecord = int(nOutputPerRecord)
@@ -289,11 +299,8 @@ class Serialize():
         self.datumQueue = Queue()
         # because can have multiple input or output data to be read
         self.read_workers = []
-        # need as much datum_workers as well because processing is different for different types
-        self.datum_workers = []
-        # dbs for each input per record + 1 for label
-        
-        self.env = lmdb.open('lmdb/datumdb0', max_dbs=nInputPerRecord + nOutputPerRecord)
+
+        self.env = lmdb.open('lmdb/datumdb', max_dbs=(nInputPerRecord + nOutputPerRecord))
 
         if multi_input or multi_output:
             self.readFlags = manager.list([0]*(nInputPerRecord + nOutputPerRecord))     # create readFlags for each worker
@@ -308,17 +315,22 @@ class Serialize():
         logger.debug("Data directory: " + str(data_dir))
         logger.info("Writing to LMDB")
 
-        dbList = []
+        # save the dbnames for deserialization later
+        self.nameddbs = []
+
+        dbHandles = []
         # create dbs for datums
         for i in xrange(1,self.nInputPerRecord):
             dbName = 'datumdb' + str(i)
-            dbList.append(self.env.open_db(dbName))
+            self.nameddbs.append(dbName)
+            dbHandles.append(self.env.open_db(dbName))
         # create labeldb
-        for i in xrange(1, self.nOutputPerRecord + 1):
+        for i in xrange(self.nOutputPerRecord):
             dbName = 'labeldb' + str(i)
-            dbList.append(self.env.open_db(dbName))
+            self.nameddbs.append(dbName)
+            dbHandles.append(self.env.open_db(dbName))
 
-        if not multi_input and not multi_output:
+        if not self.multi_input and not self.multi_output:
             '''
             single-input type, i.e. output should be inferred
             '''
@@ -327,15 +339,12 @@ class Serialize():
 
             if dataType == 'image':
                 self.read_workers.append(Thread(target=readWorker().readImage, args=(self.fileQueue, data_dir, self.nInputPerRecord, self.readFlag)))
-                self.datum_workers.append(Thread(target=datumWorker().ImageDatum, args=(self.fileQueue, self.datumQueue,)))
 
             elif dataType == 'numeric':
                 self.read_workers.append(Thread(target=readWorker().readNumeric(self.fileQueue, data_dir, input_dict, self.readFlag)))
-                self.datum_workers.append(Thread(target=datumWorker().NumericDatum, args=(self.fileQueue, self.datumQueue,)))
 
             elif dataType == 'text':
                 self.read_workers.append(Thread(target=readWorker().readText, args=(self.fileQueue, data_dir, input_dict, self.readFlag)))
-                self.datum_workers.append(Thread(target=datumWorker().TextDatum, args=(self.fileQueue, self.datumQueue,)))
 
             else:
                 logger.error(" :Incorrect or no tag given. Specify dataType in request.")
@@ -391,8 +400,10 @@ class Serialize():
                 image_binding_dict = args['image_binding']
 
             if image_binding_file.endswith('.csv'):
+                logger.debug("found csv image binding")
                 image_binding_df = pd.read_csv(image_binding_dict['file'])
             elif image_binding_file.endswith('.json'):
+                logger.debug("found json image binding")
                 parsed_json = json.load(image_binding_dict['file'])
                 if isinstance(parsed_json, dict) and 'data_key' in image_binding_dict:      # second case
                     # just a sanity check: if it's a dict, data_key has to be provided
@@ -407,19 +418,17 @@ class Serialize():
 
                 image_binding_df = pd.DataFrame(bindings, columns=cols)
 
-            # print image_binding_df.head()
             # for input_data in args['input']:
             #     dataType = input_data['dataType']
 
 
+        self.datum_worker = Thread(target=datumWorker, args=(self.fileQueue, self.datumQueue,))
+        self.write_worker = Thread(target=writeWorker, args=(self.datumQueue, self.env, dbHandles))
 
-
-
-        self.write_worker = Thread(target=writeWorker, args=(self.datumQueue, self.env, dbList))
-
-        self.read_worker.setDaemon(True)
-        self.read_worker.start()
-        logger.debug("Read Worker started")
+        for idx, worker in enumerate(self.read_workers):
+            worker.setDaemon(True)
+            worker.start()
+            logger.debug("Read Worker #{} started".format(idx))
         self.datum_worker.setDaemon(True)
         self.datum_worker.start()
         logger.debug("Datum Worker started")
@@ -448,13 +457,13 @@ if __name__ == '__main__':
         datumWorker = datumWorker()
 
         env = lmdb.open('lmdb/datumdb0', max_dbs=10)
-        dbList = []
+        dbHandles = []
         # create dbs for datums
         for i in xrange(1,nInputPerRecord):
             dbName = 'datumdb' + str(i)
-            dbList.append(env.open_db(dbName))
+            dbHandles.append(env.open_db(dbName))
         # create labeldb
-        dbList.append(env.open_db('labeldb'))
+        dbHandles.append(env.open_db('labeldb'))
 
         if dataType == '--image':
             read_worker = Thread(target=readWorker.readImage, args=(fileQueue, data_dir, nInputPerRecord))
@@ -494,7 +503,7 @@ if __name__ == '__main__':
             print "Usage: python serialize.py [--image || --numeric || --text] [data_dir || file ..]"
             sys.exit(-1)
 
-        write_worker = Thread(target=writeWorker, args=(datumQueue, env, dbList))
+        write_worker = Thread(target=writeWorker, args=(datumQueue, env, dbHandles))
 
         read_worker.setDaemon(True)
         read_worker.start()

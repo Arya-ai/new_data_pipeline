@@ -2,7 +2,7 @@ from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web.resource import Resource
 from twisted.internet import reactor, threads
 import urllib
-import os, zipfile
+import os, zipfile, json
 import logging
 import urllib2, sys
 # custom module
@@ -20,12 +20,19 @@ class DownloadFile(Resource):
     def serverStart(self):
         logger.info("Server starting...\nPress Ctrl + C to stop.\n")
     
+    '''
+    Assumptions:
+    For Status/http-form: GET request on the root
+    For Serialization: POST request on the root
+    For Training: GET request on some sub-domain
+    '''
+
     def render_GET(self, request):
         logger.info("\nGET request received!")
         self.numberRequests += 1
-        response = ""
         if self.serialize:
-            logger.debug("Checking whether data Serialization has completed")
+            logger.debug("Serialization in progress." + 
+                "\nChecking whether data Serialization has completed.")
             self.joinThreads(request)
             return NOT_DONE_YET
         else:
@@ -34,15 +41,24 @@ class DownloadFile(Resource):
 
     def render_POST(self, request):
         logger.info("\nPOST request received!")
-        logger.debug("id: " + request.args['id'][0])
-        logger.debug("url: " + request.args['url'][0])
+        req_dict = json.loads(request.content.getvalue())
+
+        logger.debug("id: " + req_dict['id'])
+        logger.debug("url: " + req_dict['url'])
         logger.info("Fetching the dataset...")
+        
         reactor.callInThread(self.downloadFile, request)
         return NOT_DONE_YET
 
+    # def print_request(self, request):
+    #     req_dict = json.loads(request.content.getvalue())
+    #     print req_dict
+    #     request.write("request accepted!")
+    #     request.finish()
+
     def downloadFile(self, request):
-        args = request.args
-        url = args['url'][0]
+        args = json.loads(request.content.getvalue())
+        url = args['url']
         filename = "dataset.zip"
         try:
             urllib.urlretrieve(url, filename)
@@ -81,12 +97,24 @@ class DownloadFile(Resource):
             request.write("Error downloading dataset.")
             request.finish()
 
-        nInputPerRecord = None
-        if 'nInputRecord' in args:
-            nInputPerRecord = int(args['nInputPerRecord'][0])
-        else: nInputPerRecord = 1
+        if len(args['input']) > 1:
+            multi_input = True
+            nInputPerRecord = len(args['input'])
+        else:
+            multi_input = False
+            if 'nInputPerRecord' in args['input'][0]:
+                # multi images per record in the same folder
+                nInputPerRecord = args['input'][0]['nInputPerRecord']
+            else: nInputPerRecord = 1
 
-        self.serialize = serialize.Serialize(nInputPerRecord)
+        if 'output' in args.keys():
+            multi_output = True
+            nOutputPerRecord = len(args['output'])
+        else:
+            multi_output = False
+            nOutputPerRecord = 1
+
+        self.serialize = serialize.Serialize(nInputPerRecord, multi_input,nOutputPerRecord, multi_output)
         self.d = threads.deferToThread(self.unzip, filename, args)
 
         self.d.addCallback(self.serialize.writeToLmdb)
@@ -116,6 +144,8 @@ class DownloadFile(Resource):
 
     def joinThreads(self, request):
         logger.debug("inside joinThreads")
+        logger.debug("readFlags: " + repr([flag.value for flag in self.serialize.readFlags]))
+        
         if self.serialize.doneFlag.value == 1:
             if self.serialize.fileQueue.empty() and self.serialize.datumQueue.empty():
                 logger.debug("Done with everything. Closing the lmdb environment.")
@@ -129,15 +159,16 @@ class DownloadFile(Resource):
                 request.write("Serializing the data. Try again later.\n")
                 request.finish()
 
-        elif self.serialize.readFlag.value == 1:
+        elif all(flag.value == 1 for flag in self.serialize.readFlags):
             logger.debug("Reading complete. Joining read_worker.")
-            self.serialize.read_worker.join()
+            for worker in self.serialize.read_workers:
+                worker.join()
             self.serialize.doneFlag.value = 1
             logger.debug("Joined read_worker.")
             request.write("Serializing the data. Try again later.\n")
             request.finish()
         else:
-            logger.debug("Reading not yet complete yet.")
+            logger.debug("Reading not yet complete.")
             request.write("Serializing the data. Try again later.\n")
             request.finish()
 

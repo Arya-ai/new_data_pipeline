@@ -10,6 +10,7 @@ from Queue import Queue
 from sklearn.feature_extraction.text import CountVectorizer
 import json
 import logging
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -20,77 +21,98 @@ class readWorker():
     '''
     A worker for reading the data
     '''
-    def readImage(self, fileQueue, data_dir, nInputPerRecord, readFlag):
-        logger.debug("nInputPerRecord: " + str(nInputPerRecord))
-        if nInputPerRecord == 1:
-            '''
-            Directly read the images from each subdirectory (label directory)
-            '''
-            imageNumber = 0
-            labeldirs = [os.path.join(data_dir, subdir) for subdir in os.listdir(data_dir)]
-
+    def readImage(self, fileQueue, data_dir, readFlag, nInputPerRecord=None, dataFlow=None, dbId=None, binding_df=None):
+        logger.debug("\nImage dir: " + data_dir)
+        if dataFlow is not None and binding_df is not None:
+            # multi-input/ multi-output case
             key = 0
-
-            for labeldir in labeldirs:
-                for image in os.listdir(labeldir):
-                    key += 1
-                    imagePath = os.path.join(labeldir, image)
-                    ndarray = cv2.imread(imagePath)
-                    slabel = imagePath.split('/')[-2]
-                    item = tuple(['image', ndarray, slabel, imageNumber, key])
-                    logger.debug("Pushed item {} into File Queue...".format(key))
-                    fileQueue.put(item)     # pass imagepath along with class label
+            for record in tqdm(binding_df):
+                key += 1
+                imagePath = os.path.join(data_dir, str(record))
+                ndarray = cv2.imread(imagePath)
+                task_dict = {'data': ndarray, 'dataType': 'image', 'key': key, 'dbId': dbId, 'dataFlow': dataFlow}
+                logger.debug("Pushed item {} into File Queue...".format(key))
+                fileQueue.put(task_dict)
 
             readFlag.value = 1
+            logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
+
         else:
-            '''
-            Read the images from each subdirectory (label directory) of each subdirectory
-            '''
-            subdirs = [os.path.abspath(os.path.join(data_dir, subdir)) for subdir in os.listdir(data_dir)]
+            # single input case
+            if nInputPerRecord == 1:
+                '''
+                Directly read the images from each subdirectory (label directory)
+                '''
+                imageNumber = 0
+                labeldirs = [os.path.join(data_dir, subdir) for subdir in os.listdir(data_dir)]
 
-            # test
-            try:
-                assert nInputPerRecord == len(subdirs)
-            except AssertionError:
-                logger.error("Number of Images per record does not match number of subdirectories")
-                sys.exit(-1)
+                key = 0
 
-            ssdirs = [os.listdir(subdir) for subdir in subdirs]
-
-            labeldirs = []
-
-            for ssdir, subdir in zip(ssdirs, subdirs):
-                labeldirs.append([os.path.join(subdir, ssd) for ssd in ssdir])
-
-            images = []
-
-            key = 0
-
-            for label_list in [list(i) for i in zip(*labeldirs)]:
-                images = zip(*[sorted(os.listdir(labeldir)) for labeldir in label_list])
-
-                imageNumber = nInputPerRecord
-                for image in images:
-                    key += 1
-                    for im, rootPath in zip(image, label_list):
-                        imagePath = os.path.join(rootPath, im)
-
-                        try:
-                            ndarray = cv2.imread(imagePath)
-                        except IOError as e:
-                            logger.error("Error:", e)
+                for labeldir in labeldirs:
+                    for image in tqdm(os.listdir(labeldir)):
+                        key += 1
+                        imagePath = os.path.join(labeldir, image)
+                        ndarray = cv2.imread(imagePath)
                         slabel = imagePath.split('/')[-2]
-                        item = tuple(['image', ndarray, slabel, imageNumber, key])       # pass imagepath along with class label
-                        logger.debug("ReadWorker: Pushed item {} into File Queue...".format(key))
-                        fileQueue.put(item)
-                        imageNumber -= 1        # decrement for the thread to distinguish
+                        task_dict = {'data': ndarray, 'dataType': 'image', 'label': slabel, 'key': key, 'dbId': 0}
+                        logger.debug("Pushed item {} into File Queue...".format(key))
+                        fileQueue.put(task_dict)     # pass imagepath along with class label
 
-            readFlag.value = 1
+                readFlag.value = 1
+                logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
 
-    def readNumeric(self, fileQueue, data_dir, options, readFlag):
-        label = options['label']
-        data_key = options['data_key']
-        file = os.path.join(data_dir, os.listdir(data_dir)[0])
+            else:
+                '''
+                Read the images from each subdirectory (label directory) of each subdirectory
+                '''
+                subdirs = [os.path.abspath(os.path.join(data_dir, subdir)) for subdir in os.listdir(data_dir)]
+
+                # test
+                try:
+                    assert nInputPerRecord == len(subdirs)
+                except AssertionError:
+                    logger.error("Number of Images per record does not match number of subdirectories")
+                    sys.exit(-1)
+
+                ssdirs = [os.listdir(subdir) for subdir in subdirs]
+
+                labeldirs = []
+
+                for ssdir, subdir in zip(ssdirs, subdirs):
+                    labeldirs.append([os.path.join(subdir, ssd) for ssd in ssdir])
+
+                images = []
+
+                key = 0
+
+                for label_list in [list(i) for i in zip(*labeldirs)]:
+                    images = zip(*[sorted(os.listdir(labeldir)) for labeldir in label_list])
+
+                    imageNumber = nInputPerRecord - 1
+                    # goes from (n - 1) to 0
+                    for image in images:
+                        key += 1
+                        for im, rootPath in tqdm(zip(image, label_list)):
+                            imagePath = os.path.join(rootPath, im)
+
+                            try:
+                                ndarray = cv2.imread(imagePath)
+                            except IOError as e:
+                                logger.error("Error:", e)
+                            slabel = imagePath.split('/')[-2]
+                            task_dict = {'data': ndarray, 'dataType': 'image', 'label':slabel, 'key': key, 
+                                        'dbId': imageNumber, 'multiImage': True}
+                            # special case: Multi inputs but output label is inferred, not supplied separately
+                            logger.debug("ReadWorker: Pushed item {} into File Queue...".format(key))
+                            fileQueue.put(task_dict)
+                            imageNumber -= 1        # decrement for the thread to distinguish
+
+                readFlag.value = 1
+                logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
+
+
+    def readNumeric(self, fileQueue, file, readFlag, options=None, dataFlow=None, dbId=None):
+        logger.debug("\nNumeric filepath: " + file)
         if file.endswith('.csv'):
             try:
                 df = pd.read_csv(file)
@@ -98,11 +120,17 @@ class readWorker():
                 logger.error("Error reading csv file: ", exc_info=True)
         elif file.endswith('.json'):
             try:
-                json_dict = json.load(open(file))
-                cols = json_dict[data_key][0].keys()
+                parsed_json = json.load(open(file))
+                if isinstance(parsed_json, dict) and 'data_key' in options.keys():
+                    # just a sanity check: if it's a dict, data_key has to be provided
+                    datum_dicts = parsed_json[options['data_key']]
+                else:
+                    datum_dicts = parsed_json
+
+                cols = datum_dicts[0].keys()
                 rows = []
-                for row in json_dict[data_key]:
-                    rows.append(row.values())
+                for datum_dict in datum_dicts:
+                    rows.append(datum_dict.values())
 
                 df = pd.DataFrame(rows, columns=cols)
             except IOError as e:
@@ -111,70 +139,106 @@ class readWorker():
             logger.error("Error: Provide the file in valid format (.csv or .json)")
             sys.exit(-1)
 
-        # labelSeries = []
-        # for label in labels:
-        #     labelSeries.append(df.pop(label))
+        if options and 'label' in options:
+            label = options['label']
+            # labelSeries = []
+            # for label in labels:
+            #     labelSeries.append(df.pop(label))
 
-        # labeldf = pd.concat(labelSeries, axis=1)        # concat all the labels into a single df
-        labeldf = df.pop(label)
+            # labeldf = pd.concat(labelSeries, axis=1)        # concat all the labels into a single df
+            labeldf = df.pop(label)
+        else: labeldf = None
 
-        for idx in xrange(len(df)):
-            data = df.iloc[idx].to_frame.to_records(index=False)
+        for idx in tqdm(xrange(len(df))):
+            data = df.iloc[idx].to_frame().to_records(index=False)
             '''
             this will return a numpy record array which needs to be converted to a numpy array
             for it to be converted back from a byte array
             '''
             # retrieve the datatype
-            dt = data.dtype.fields[u'0'][0]
+            dt = data.dtype[0]
             # convert into numpy array
             np_data = np.array(data.view(dt))
 
-            label = labeldf.iloc[idx]       # for single label
-            # label = label.to_frame()
-            # label = label.to_records(index=False)
+            task_dict = {'data': np_data, 'dataType': 'numeric', 'key': idx + 1}
 
-            item = tuple(['numeric', np_data, label, idx])
+            if labeldf:
+                label_data = labeldf.iloc[idx]       # for single label
+                # label_data = label_data.to_frame()
+                # label_data = label_data.to_records(index=False)
+                task_dict['label'] = label_data
+
+            if dbId:
+                task_dict['dbId'] = dbId        # MIMO
+            else: task_dict['dbId'] = 0
+
+            if dataFlow:
+                task_dict['dataFlow'] = dataFlow
+
             logger.debug("Pushed item {} into File Queue...".format(idx + 1))
-            fileQueue.put(item)
+            fileQueue.put(task_dict)
 
         readFlag.value = 1
+        logger.debug("Numeric ReadFlag #{} set.".format(task_dict['dbId']))
 
-    def readText(self, fileQueue, data_dir, options, readFlag):
-        name = options['name']
-        text = options['text']
-        label = options['label']
-        file = os.listdir(data_dir)[0]
+
+    def readText(self, fileQueue, file, readFlag, options=None, dataFlow=None, dbId=None):
+        logger.debug("\nText filepath: " + file)
+
         if file.endswith(".csv"):
             try:
                 df = pd.read_csv(file)
             except IOError as e:
                 logger.error("Error:", e)
+                sys.exit(-1)
         elif file.endswith(".json"):
             try:
-                df = json.load(open(file))
+                parsed_json = json.load(open(file))
+                if isinstance(parsed_json, dict) and 'data_key' in options.keys():
+                    # just a sanity check: if it's a dict, data_key has to be provided
+                    datum_dicts = parsed_json[options['data_key']]
+                else:
+                    datum_dicts = parsed_json
+
+                cols = datum_dicts[0].keys()
+                rows = []
+                for datum_dict in datum_dicts:
+                    rows.append(datum_dict.values())
+
+                df = pd.DataFrame(rows, columns=cols)
             except IOError as e:
-                logger.error("Error:", e)
+                logger.error("Error opening json file: ", exc_info=True)
+                sys.exit(-1)
         else:
             logger.error("Error: Provide the file in valid format (.csv or .json)")
-            return
+            sys.exit(-1)
 
         vectorizer = CountVectorizer(token_pattern=u"(?u)\\b\\w+\\b")
 
+        if options and 'text' in options.keys(): text_field = options['text']
+        else: text_field = df.columns[0]
+        # in case of a list of strings (text)
+
         caps = []
-        for i in df[name]:
-            caps.append(i[text])
+        for text_datum in df[text_field]:
+            caps.append(text_datum)
 
         train_features = vectorizer.fit_transform(caps)
         vecs = train_features.toarray()
 
-        for idx in xrange(len(df[name])):
+        for idx in tqdm(xrange(len(df[name]))):
             textDatum = vecs[idx]
-            textLabel = df[name][idx][label]
-            item = tuple(['text', textDatum, textLabel, idx])
+            task_dict = {'data': text_datum, 'dataType': 'text', 'key': idx + 1}
+            if options and 'label' in options.keys():
+                textLabel = df[name][idx][label]
+                task_dict['label'] = textLabel
+
             logger.debug("Pushed item {} into File Queue...".format(idx + 1))
-            fileQueue.put(item)
+            fileQueue.put(task_dict)
 
         readFlag.value = 1
+        logger.debug("Text ReadFlag #{} set.".format(task_dict['dbId']))
+
 
 class datumWorker():
     '''
@@ -182,108 +246,134 @@ class datumWorker():
     '''
 
     def __init__(self, fileQueue, datumQueue):
-        count = 0
+        self.count = 0
         while True:
-            received = fileQueue.get()
-            count += 1 
-            dataType = received[0]
-            received = received[1:].append(count)
+            task_dict = fileQueue.get()
+            self.count += 1 
+            dataType = task_dict.pop('dataType')
 
             if dataType == 'image':
-                self.ImageDatum(received, fileQueue, datumQueue)
+                self.ImageDatum(task_dict, fileQueue, datumQueue)
             elif dataType == 'numeric':
-                self.NumericDatum(received, fileQueue, datumQueue)
+                self.NumericDatum(task_dict, fileQueue, datumQueue)
             elif dataType == 'text':
-                self.TextDatum(received, fileQueue, datumQueue)
+                self.TextDatum(task_dict, fileQueue, datumQueue)
             else:
                 logger.debug("Not the dataType I was expecting. Something broke.")
                 sys.exit(-1)
 
-    def ImageDatum(self, received, fileQueue, datumQueue):
-        data, slabel, imageNumber, key, count = received
-        count += 1
-        dims = list(data.shape)
-
+    def ImageDatum(self, task_dict, fileQueue, datumQueue):
         datum = Datum()
 
-        labelDatum = datum.classs
-        labelDatum.identifier = str(key)
-        labelDatum.slabel = slabel
+        dims = list(task_dict['data'].shape)
 
         imageDatum = datum.imgdata.add()
-        imageDatum.identifier = str(key)
+        imageDatum.identifier = str(task_dict['key'])
         imageDatum.channels = dims[2]
         imageDatum.height = dims[0]
         imageDatum.width = dims[1]
-        imageDatum.data = data.tobytes()
+        imageDatum.data = task_dict.pop('data').tobytes()
 
-        item = tuple([imageDatum, labelDatum, imageNumber, key])
-        datumQueue.put(item)
-        logger.debug("DatumWorker: Pushed datum #{} into Datum Queue".format(count))
+        task_dict['datum'] = imageDatum
+    
+        if 'label' in task_dict.keys():
+            labelDatum = datum.classs
+            labelDatum.identifier = str(task_dict['key'])
+            labelDatum.slabel = task_dict.pop('label')
+
+            task_dict['label'] = labelDatum
+
+        datumQueue.put(task_dict)
+        logger.debug("DatumWorker: Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()       # let the fileQueue know item has been processed and is safe to delete
 
-    def NumericDatum(self, fileQueue, datumQueue):
-        data, label, key, count = received
+    def NumericDatum(self, task_dict, fileQueue, datumQueue):
         datum = Datum()
-        labelDatum = datum.classs
-        labelDatum.identifier = str(key)
-        labelDatum.nlabel = label
 
         numericDatum = datum.numeric
-        numericDatum.identifier = str(key)
+        numericDatum.identifier = str(task_dict['key'])
         # numericDatum.size.dim = label.shape[0]
         numericDatum.size.dim = 1       # currently just for 1 label
-        numericDatum.data = data.tobytes()
+        numericDatum.data = task_dict.pop('data').tobytes()
 
-        item = tuple([numericDatum, labelDatum, key])
-        datumQueue.put(item)
-        logger.debug("Pushed datum #{} into Datum Queue".format(count))
+        task_dict['datum'] = numericDatum
+
+        if 'label' in task_dict.keys():
+            labelDatum = datum.classs
+            labelDatum.identifier = str(task_dict['key'])
+            labelDatum.nlabel = task_dict.pop('label')
+            task_dict['label'] = labelDatum
+
+        datumQueue.put(task_dict)
+        logger.debug("Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()
 
     def TextDatum(self, fileQueue, datumQueue):
-        data, label, key, count = received
         datum = Datum()
+
         textDatum = datum.numeric
-        textDatum.identifier = str(key)
+        textDatum.identifier = str(task_dict['key'])
         textDatum.size.dim = 1
-        textDatum.data = np.array(data).tobytes()
+        textDatum.data = task_dict.pop('data').tobytes()
 
-        labelDatum = datum.classs
-        labelDatum.identifier = str(key)
-        labelDatum.nlabel = label
+        task_dict['datum'] = textDatum
 
-        item = tuple([textDatum, labelDatum, key])
-        datumQueue.put(item)
-        logger.debug("Pushed datum #{} into Datum Queue".format(count))
+        if 'label' in task_dict.keys():
+            labelDatum = datum.classs
+            labelDatum.identifier = str(task_dict['key'])
+            labelDatum.nlabel = task_dict.pop('label')
+
+            task_dict['label'] = labelDatum
+
+        datumQueue.put(task_dict)
+        logger.debug("Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()
             
 class writeWorker():
     '''
     A worker for writing the datum to lmdb database
     '''
-    def __init__(self, datumQueue, env, dbHandles):
+    def __init__(self, datumQueue, env, inputDBHandles, outputDBHandles):
         while True:
-            item = list(datumQueue.get())
-            dbId = 0        # which db to push to in case of multiple inputs per record
-            if len(item) == 4:
-                datum, label, dbId, key = item
+            task_dict = datumQueue.get()
+
+            if 'multiImage' in task_dict.keys() and task_dict['multiImage']:
+                # special case with the images. one label and multilpe images.
+                # Refer definition of readWorker.readImage
+                if task_dict['dbId'] == 0:
+                    datumDBHandle = inputDBHandles[task_dict['dbId']]
+                    with env.begin(write=True, db=datumDBHandle) as txn:
+                        txn.put(str(task_dict['key']).encode('ascii'), task_dict['datum'].SerializeToString())
+
+                    labelDBHandle = outputDBHandles[-1]
+                    with env.begin(write=True, db=labelDBHandle) as txn:
+                        txn.put(str(task_dict['key']).encode('ascii'), task_dict['label'].SerializeToString())
+                else:
+                    datumDBHandle = inputDBHandles[task_dict['dbId']]
+                    with env.begin(write=True, db=datumDBHandle) as txn:
+                        txn.put(str(task_dict['key']).encode('ascii'), task_dict['datum'].SerializeToString())
+
+            elif 'dataFlow' in task_dict.keys():
+                # MIMO - no label, just datum
+                if task_dict['dataFlow'] == 'input':
+                    DBHandle = inputDBHandles[task_dict['dbId']]
+                elif task_dict['dataFlow'] == 'output':
+                    DBHandle = outputDBHandles[task_dict['dbId']]
+                with env.begin(write=True, db=DBHandle) as txn:
+                    txn.put(str(task_dict['key']).encode('ascii'), task_dict['datum'].SerializeToString())
+
             else:
-                datum, label, key = item
+                # single-input
+                datumDBHandle = inputDBHandles[task_dict['dbId']]
+                with env.begin(write=True, db=datumDBHandle) as txn:
+                    txn.put(str(task_dict['key']).encode('ascii'), task_dict['datum'].SerializeToString())
 
-            if dbId == 0:
-                with env.begin(write=True) as txn:
-                    txn.put(str(key).encode('ascii'), datum.SerializeToString())
+                if 'label' in task_dict.keys():
+                    labelDBHandle = outputDBHandles['dbId']
+                    with env.begin(write=True, db=labelDBHandle) as txn:
+                        txn.put(str(task_dict['key']).encode('ascii'), task_dict['label'].SerializeToString())
 
-                labelDBHandle = dbHandles[-1]
-                with env.begin(write=True, db=labelDBHandle) as txn:
-                    txn.put(str(key).encode('ascii'), label.SerializeToString())
-            else:
-                dbHandle = dbHandles[dbId - 1]
-                with env.begin(write=True, db=dbHandle) as txn:
-                    txn.put(str(key).encode('ascii'), datum.SerializeToString())
-
-            logger.debug("WriteWorker: Datum #{} written to lmdb".format(key))
-
+            logger.debug("WriteWorker: Datum #{} written to lmdb".format(task_dict['key']))
 
 class Serialize():
 
@@ -300,12 +390,19 @@ class Serialize():
         # because can have multiple input or output data to be read
         self.read_workers = []
 
-        self.env = lmdb.open('lmdb/datumdb', max_dbs=(nInputPerRecord + nOutputPerRecord))
+        self.env = lmdb.open('lmdb/datumdb', max_dbs=(nInputPerRecord + nOutputPerRecord + 1))
+        '''
+        why +1 than required?
+        A: The main db stores the keys to all the named dbs, which are datumdbs and labeldbs.
+        It does not contain any data to make the process more easily understandable; i.e. data in all the named dbs.
+        '''
 
         if multi_input or multi_output:
-            self.readFlags = manager.list([0]*(nInputPerRecord + nOutputPerRecord))     # create readFlags for each worker
+            # create self.readFlags for each worker
+            self.readFlags = [manager.Value('i', 0) for i in range(nInputPerRecord + nOutputPerRecord)]
         else:
-            self.readFlags = manager.list([0]*nInputPerRecord)     # create readFlags for just one read_worker
+            # create self.readFlags for just one read_worker
+            self.readFlags = [manager.Value('i', 0)]
 
         self.doneFlag = manager.Value('i', 0)
         logger.debug("Serialize Instance created with {} dbs".format(nInputPerRecord + nOutputPerRecord))
@@ -316,19 +413,22 @@ class Serialize():
         logger.info("Writing to LMDB")
 
         # save the dbnames for deserialization later
-        self.nameddbs = []
+        self.inputDBs = []
+        self.outputDBs = []
 
-        dbHandles = []
+        # get DB handles to pass along with the env
+        inputDBHandles = []
+        outputDBHandles = []
         # create dbs for datums
-        for i in xrange(1,self.nInputPerRecord):
+        for i in xrange(self.nInputPerRecord):
             dbName = 'datumdb' + str(i)
-            self.nameddbs.append(dbName)
-            dbHandles.append(self.env.open_db(dbName))
+            self.inputDBs.append(dbName)
+            inputDBHandles.append(self.env.open_db(dbName))
         # create labeldb
         for i in xrange(self.nOutputPerRecord):
             dbName = 'labeldb' + str(i)
-            self.nameddbs.append(dbName)
-            dbHandles.append(self.env.open_db(dbName))
+            self.outputDBs.append(dbName)
+            outputDBHandles.append(self.env.open_db(dbName))
 
         if not self.multi_input and not self.multi_output:
             '''
@@ -338,13 +438,18 @@ class Serialize():
             dataType = input_dict['dataType']
 
             if dataType == 'image':
-                self.read_workers.append(Thread(target=readWorker().readImage, args=(self.fileQueue, data_dir, self.nInputPerRecord, self.readFlag)))
+                self.read_workers.append(Thread(target=readWorker().readImage(
+                    self.fileQueue, data_dir, nInputPerRecord=self.nInputPerRecord, readFlag=self.readFlags[0])))
 
             elif dataType == 'numeric':
-                self.read_workers.append(Thread(target=readWorker().readNumeric(self.fileQueue, data_dir, input_dict, self.readFlag)))
+                file = os.path.join(data_dir, os.listdir(data_dir)[0])
+                self.read_workers.append(Thread(target=readWorker().readNumeric(
+                    self.fileQueue, file, readFlag=self.readFlags[0], options=input_dict)))
 
             elif dataType == 'text':
-                self.read_workers.append(Thread(target=readWorker().readText, args=(self.fileQueue, data_dir, input_dict, self.readFlag)))
+                file = os.path.join(data_dir, os.listdir(data_dir)[0])
+                self.read_workers.append(Thread(target=readWorker().readText(
+                    self.fileQueue, data_dir, readFlag=self.readFlags[0], options=input_dict)))
 
             else:
                 logger.error(" :Incorrect or no tag given. Specify dataType in request.")
@@ -398,32 +503,82 @@ class Serialize():
 
             if 'image_binding' in args:
                 image_binding_dict = args['image_binding']
+                image_binding_file = os.path.join(data_dir, image_binding_dict['file'])
 
-            if image_binding_file.endswith('.csv'):
-                logger.debug("found csv image binding")
-                image_binding_df = pd.read_csv(image_binding_dict['file'])
-            elif image_binding_file.endswith('.json'):
-                logger.debug("found json image binding")
-                parsed_json = json.load(image_binding_dict['file'])
-                if isinstance(parsed_json, dict) and 'data_key' in image_binding_dict:      # second case
-                    # just a sanity check: if it's a dict, data_key has to be provided
-                    bindings_dict = parsed_json[image_binding_dict['data_key']]
+            try:
+                logger.debug("Reading image_binding file...")
+                if image_binding_file.endswith('.csv'):
+                    logger.debug("found csv image binding")
+                    image_binding_df = pd.read_csv(image_binding_file)
+                elif image_binding_file.endswith('.json'):
+                    logger.debug("found json image binding")
+                    parsed_json = json.load(image_binding_file)
+                    if isinstance(parsed_json, dict) and 'data_key' in image_binding_dict:      # second case
+                        # just a sanity check: if it's a dict, data_key has to be provided
+                        bindings_dict = parsed_json[image_binding_dict['data_key']]
+                    else:
+                        bindings_dict = parsed_json
+
+                    cols = bindings_dict[0].keys()
+                    bindings = []
+                    for binding_dict in bindings_dict:
+                        bindings.append(binding_dict.values())
+
+                    image_binding_df = pd.DataFrame(bindings, columns=cols)
+            except Exception as e:
+                logger.error("Error reading image binding file: " + str(e))
+
+            for idx, input_data in enumerate(args['input']):
+                dataType = input_data['dataType']
+
+                if dataType == 'image':
+                    directory = os.path.join(data_dir, input_data['directory'])
+                    binding_field = input_data['binding_field']
+                    binding_df = image_binding_df.pop(binding_field)
+                    self.read_workers.append(Thread(target=readWorker().readImage(
+                        self.fileQueue, directory, readFlag=self.readFlags[idx], dataFlow='input', dbId=idx, binding_df=binding_df)))
+
+                elif dataType == 'numeric':
+                    file = os.path.join(data_dir, input_data['file'])
+                    self.read_workers.append(Thread(readWorker().readNumeric(
+                        self.fileQueue, file, readFlag=self.readFlags[idx], dataFlow='input', dbId=idx)))
+
+                elif dataType == 'text':
+                    file = os.path.join(data_dir, input_data['file'])
+                    self.read_workers.append(Thread(read_workers().readText(
+                        self.fileQueue, file, options=input_dict, readFlag=self.readFlags[idx], dataFlow='input', dbId=idx)))
+
                 else:
-                    bindings_dict = parsed_json
+                    logger.error("Error reading data: invalid format provided.")
+                    sys.exit(-1)
 
-                cols = bindings_dict[0].keys()
-                bindings = []
-                for binding_dict in bindings_dict:
-                    bindings.append(binding_dict.values())
 
-                image_binding_df = pd.DataFrame(bindings, columns=cols)
+            for idx, output_data in enumerate(args['output']):
+                dataType = output_data['dataType']
 
-            # for input_data in args['input']:
-            #     dataType = input_data['dataType']
+                if dataType == 'image':
+                    directory = os.path.join(data_dir, output_data['directory'])
+                    binding_field = output_data['binding_field']
+                    binding_df = image_binding_df.pop(binding_field)
+                    self.read_workers.append(Thread(target=readWorker().readImage(
+                        self.fileQueue, directory, readFlag=self.readFlags[self.nInputPerRecord + idx], dataFlow='output', dbId=idx, binding_df=binding_df)))
 
+                elif dataType == 'numeric':
+                    file = os.path.join(data_dir, output_data['file'])
+                    self.read_workers.append(Thread(readWorker().readNumeric(
+                        self.fileQueue, file, readFlag=self.readFlags[self.nInputPerRecord + idx], dataFlow='output', dbId=idx)))
+
+                elif dataType == 'text':
+                    file = os.path.join(data_dir, output_data['file'])
+                    self.read_workers.append(Thread(read_workers().readText(
+                        self.fileQueue, file, readFlag=self.readFlags[self.nInputPerRecord + idx], dataFlow='output', dbId=idx)))
+
+                else:
+                    logger.error("Error reading data: invalid format provided.")
+                    sys.exit(-1)
 
         self.datum_worker = Thread(target=datumWorker, args=(self.fileQueue, self.datumQueue,))
-        self.write_worker = Thread(target=writeWorker, args=(self.datumQueue, self.env, dbHandles))
+        self.write_worker = Thread(target=writeWorker, args=(self.datumQueue, self.env, inputDBHandles, outputDBHandles))
 
         for idx, worker in enumerate(self.read_workers):
             worker.setDaemon(True)

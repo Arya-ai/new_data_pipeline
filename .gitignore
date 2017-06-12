@@ -91,7 +91,7 @@ ENV/
 lmdb/
 
 # temp .py files
-try.py
+tmp/
 
 # web request files for testing
 requests/

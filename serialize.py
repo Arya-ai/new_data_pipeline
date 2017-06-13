@@ -2,9 +2,11 @@ import lmdb
 import numpy as np
 import cv2  #openCV for getting image attributes
 import os, sys
+from subprocess import Popen, PIPE
+from re import search
+from threading import Thread
 from datum_pb2 import Datum
 import pandas as pd
-from threading import Thread
 from multiprocessing import Manager
 from Queue import Queue
 from sklearn.feature_extraction.text import CountVectorizer
@@ -12,7 +14,7 @@ import json
 import logging
 from tqdm import tqdm
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 manager = Manager()
@@ -21,14 +23,14 @@ class readWorker():
     '''
     A worker for reading the data
     '''
-    def readImage(self, fileQueue, data_dir, readFlag, nInputPerRecord=None, dataFlow=None, dbId=None, binding_df=None):
+    def readImage(self, fileQueue, data_dir, readFlag, nInputPerRecord=None, dataFlow=None, dbId=None, binding_df=None, options=None):
         logger.debug("\nImage dir: " + data_dir)
         if dataFlow is not None and binding_df is not None:
             # multi-input/ multi-output case
             key = 0
             for record in tqdm(binding_df):
                 key += 1
-                imagePath = os.path.join(data_dir, str(record))
+                imagePath = os.path.join(data_dir, str(record)) + str(options['extension'])
                 ndarray = cv2.imread(imagePath)
                 task_dict = {'data': ndarray, 'dataType': 'image', 'key': key, 'dbId': dbId, 'dataFlow': dataFlow}
                 logger.debug("Pushed item {} into File Queue...".format(key))
@@ -118,6 +120,7 @@ class readWorker():
                 df = pd.read_csv(file)
             except IOError as e:
                 logger.error("Error reading csv file: ", exc_info=True)
+                sys.exit(-1)
         elif file.endswith('.json'):
             try:
                 parsed_json = json.load(open(file))
@@ -135,6 +138,7 @@ class readWorker():
                 df = pd.DataFrame(rows, columns=cols)
             except IOError as e:
                 logger.error("Error opening json file: ", exc_info=True)
+                sys.exit(-1)
         else:
             logger.error("Error: Provide the file in valid format (.csv or .json)")
             sys.exit(-1)
@@ -412,6 +416,16 @@ class Serialize():
         logger.debug("Data directory: " + str(data_dir))
         logger.info("Writing to LMDB")
 
+        # The default mapsize for LMDB is 1 GB, and it does not have dynamic sizing.
+        # So for larger datasets, the mapsize should be explicitly set to almost 
+        # the size of the folder containing the dataset.
+        
+        proc = Popen(['du', '-s', data_dir], stdout=PIPE)
+        shell_output = proc.communicate()[0]    # 0 = stdout, 1 = stderr
+        mapsize = int(re.search(r'(\d+)', shell_output).group())
+
+        self.env.set_mapsize(mapsize)
+
         # save the dbnames for deserialization later
         self.inputDBs = []
         self.outputDBs = []
@@ -536,7 +550,8 @@ class Serialize():
                     binding_field = input_data['binding_field']
                     binding_df = image_binding_df.pop(binding_field)
                     self.read_workers.append(Thread(target=readWorker().readImage(
-                        self.fileQueue, directory, readFlag=self.readFlags[idx], dataFlow='input', dbId=idx, binding_df=binding_df)))
+                        self.fileQueue, directory, readFlag=self.readFlags[idx], 
+                        dataFlow='input', dbId=idx, binding_df=binding_df, options=input_data)))
 
                 elif dataType == 'numeric':
                     file = os.path.join(data_dir, input_data['file'])
@@ -561,7 +576,8 @@ class Serialize():
                     binding_field = output_data['binding_field']
                     binding_df = image_binding_df.pop(binding_field)
                     self.read_workers.append(Thread(target=readWorker().readImage(
-                        self.fileQueue, directory, readFlag=self.readFlags[self.nInputPerRecord + idx], dataFlow='output', dbId=idx, binding_df=binding_df)))
+                        self.fileQueue, directory, readFlag=self.readFlags[self.nInputPerRecord + idx], 
+                        dataFlow='output', dbId=idx, binding_df=binding_df, options=output_data)))
 
                 elif dataType == 'numeric':
                     file = os.path.join(data_dir, output_data['file'])
@@ -591,8 +607,10 @@ class Serialize():
         self.write_worker.start()
         logger.debug("Write Worker started")
 
-        print "Hajime (https://translate.google.com/#ja/en/Hajime)"
+        logger.info("Hajime (https://translate.google.com/#ja/en/Hajime)")
 
+
+    def deserialize(self):
 
 if __name__ == '__main__':
     args = sys.argv[1:]     # clip off the script name

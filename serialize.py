@@ -33,11 +33,11 @@ class readWorker():
                 imagePath = os.path.join(data_dir, str(record)) + str(options['extension'])
                 ndarray = cv2.imread(imagePath)
                 task_dict = {'data': ndarray, 'dataType': 'image', 'key': key, 'dbId': dbId, 'dataFlow': dataFlow}
-                logger.debug("Pushed item {} into File Queue...".format(key))
+                logger.debug("ImageReader: Pushed item {} into File Queue...".format(key))
                 fileQueue.put(task_dict)
 
             readFlag.value = 1
-            logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
+            logger.debug("ImageReader: Image ReadFlag #{} set.".format(task_dict['dbId']))
 
         else:
             # single input case
@@ -57,11 +57,11 @@ class readWorker():
                         ndarray = cv2.imread(imagePath)
                         slabel = imagePath.split('/')[-2]
                         task_dict = {'data': ndarray, 'dataType': 'image', 'label': slabel, 'key': key, 'dbId': 0}
-                        logger.debug("Pushed item {} into File Queue...".format(key))
+                        logger.debug("ImageReader: Pushed item {} into File Queue...".format(key))
                         fileQueue.put(task_dict)     # pass imagepath along with class label
 
                 readFlag.value = 1
-                logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
+                logger.debug("ImageReader: Image ReadFlag #{} set.".format(task_dict['dbId']))
 
             else:
                 '''
@@ -105,12 +105,12 @@ class readWorker():
                             task_dict = {'data': ndarray, 'dataType': 'image', 'label':slabel, 'key': key, 
                                         'dbId': imageNumber, 'multiImage': True}
                             # special case: Multi inputs but output label is inferred, not supplied separately
-                            logger.debug("ReadWorker: Pushed item {} into File Queue...".format(key))
+                            logger.debug("ImageReader: Pushed item {} into File Queue...".format(key))
                             fileQueue.put(task_dict)
                             imageNumber -= 1        # decrement for the thread to distinguish
 
                 readFlag.value = 1
-                logger.debug("Image ReadFlag #{} set.".format(task_dict['dbId']))
+                logger.debug("ImageReader: Image ReadFlag #{} set.".format(task_dict['dbId']))
 
 
     def readNumeric(self, fileQueue, file, readFlag, options=None, dataFlow=None, dbId=None):
@@ -179,11 +179,11 @@ class readWorker():
             if dataFlow:
                 task_dict['dataFlow'] = dataFlow
 
-            logger.debug("Pushed item {} into File Queue...".format(idx + 1))
+            logger.debug("NumericReader: Pushed item {} into File Queue...".format(idx + 1))
             fileQueue.put(task_dict)
 
         readFlag.value = 1
-        logger.debug("Numeric ReadFlag #{} set.".format(task_dict['dbId']))
+        logger.debug("NumericReader: Numeric ReadFlag #{} set.".format(task_dict['dbId']))
 
 
     def readText(self, fileQueue, file, readFlag, options=None, dataFlow=None, dbId=None):
@@ -237,11 +237,11 @@ class readWorker():
                 textLabel = df[name][idx][label]
                 task_dict['label'] = textLabel
 
-            logger.debug("Pushed item {} into File Queue...".format(idx + 1))
+            logger.debug("TextReader: Pushed item {} into File Queue...".format(idx + 1))
             fileQueue.put(task_dict)
 
         readFlag.value = 1
-        logger.debug("Text ReadFlag #{} set.".format(task_dict['dbId']))
+        logger.debug("TextReader: Text ReadFlag #{} set.".format(task_dict['dbId']))
 
 
 class datumWorker():
@@ -269,26 +269,28 @@ class datumWorker():
     def ImageDatum(self, task_dict, fileQueue, datumQueue):
         datum = Datum()
 
-        dims = list(task_dict['data'].shape)
+        dims = task_dict['data'].shape
 
-        imageDatum = datum.imgdata.add()
+        imageDatum = datum.imgdata
         imageDatum.identifier = str(task_dict['key'])
         imageDatum.channels = dims[2]
         imageDatum.height = dims[0]
         imageDatum.width = dims[1]
-        imageDatum.data = task_dict.pop('data').tobytes()
+        data = task_dict.pop('data')
+        data = np.asarray(data, dtype='float32')
+        imageDatum.data = data.tobytes()
 
-        task_dict['datum'] = imageDatum
+        task_dict['datum'] = datum
     
         if 'label' in task_dict.keys():
             labelDatum = datum.classs
             labelDatum.identifier = str(task_dict['key'])
             labelDatum.slabel = task_dict.pop('label')
 
-            task_dict['label'] = labelDatum
+            task_dict['label'] = datum
 
         datumQueue.put(task_dict)
-        logger.debug("DatumWorker: Pushed datum #{} into Datum Queue".format(self.count))
+        logger.debug("ImageDatum: Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()       # let the fileQueue know item has been processed and is safe to delete
 
     def NumericDatum(self, task_dict, fileQueue, datumQueue):
@@ -298,18 +300,20 @@ class datumWorker():
         numericDatum.identifier = str(task_dict['key'])
         # numericDatum.size.dim = label.shape[0]
         numericDatum.size.dim = 1       # currently just for 1 label
-        numericDatum.data = task_dict.pop('data').tobytes()
+        data = task_dict.pop('data')
+        data = np.asarray(data, dtype='float32')
+        numericDatum.data = data.tobytes()
 
-        task_dict['datum'] = numericDatum
+        task_dict['datum'] = datum
 
         if 'label' in task_dict.keys():
             labelDatum = datum.classs
             labelDatum.identifier = str(task_dict['key'])
             labelDatum.nlabel = task_dict.pop('label')
-            task_dict['label'] = labelDatum
+            task_dict['label'] = datum
 
         datumQueue.put(task_dict)
-        logger.debug("Pushed datum #{} into Datum Queue".format(self.count))
+        logger.debug("NumericDatum: Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()
 
     def TextDatum(self, fileQueue, datumQueue):
@@ -318,19 +322,21 @@ class datumWorker():
         textDatum = datum.numeric
         textDatum.identifier = str(task_dict['key'])
         textDatum.size.dim = 1
-        textDatum.data = task_dict.pop('data').tobytes()
+        data = task_dict.pop('data')
+        data = np.asarray(data, dtype='float32')
+        textDatum.data = data.tobytes()
 
-        task_dict['datum'] = textDatum
+        task_dict['datum'] = datum
 
         if 'label' in task_dict.keys():
             labelDatum = datum.classs
             labelDatum.identifier = str(task_dict['key'])
             labelDatum.nlabel = task_dict.pop('label')
 
-            task_dict['label'] = labelDatum
+            task_dict['label'] = datum
 
         datumQueue.put(task_dict)
-        logger.debug("Pushed datum #{} into Datum Queue".format(self.count))
+        logger.debug("TextDatum: Pushed datum #{} into Datum Queue".format(self.count))
         fileQueue.task_done()
             
 class writeWorker():
@@ -377,11 +383,17 @@ class writeWorker():
                     with env.begin(write=True, db=labelDBHandle) as txn:
                         txn.put(str(task_dict['key']).encode('ascii'), task_dict['label'].SerializeToString())
 
+            datumQueue.task_done()
             logger.debug("WriteWorker: Datum #{} written to lmdb".format(task_dict['key']))
 
 class Serialize():
 
-    def __init__(self, nInputPerRecord=1, multi_input=False, nOutputPerRecord=1, multi_output=False):
+    def __init__(self):
+        self.lmdbPath = None
+        self.nInputPerRecord = None
+        self.nOutputPerRecord = None
+
+    def _init_write(self, nInputPerRecord=1, multi_input=False, nOutputPerRecord=1, multi_output=False, lmdbPath=None):
         self.multi_input = bool(multi_input)
         self.multi_output = bool(multi_output)
 
@@ -394,22 +406,25 @@ class Serialize():
         # because can have multiple input or output data to be read
         self.read_workers = []
 
-        self.env = lmdb.open('lmdb/datumdb', max_dbs=(nInputPerRecord + nOutputPerRecord + 1))
-        '''
-        why +1 than required?
-        A: The main db stores the keys to all the named dbs, which are datumdbs and labeldbs.
-        It does not contain any data to make the process more easily understandable; i.e. data in all the named dbs.
-        '''
+        if lmdbPath:
+            self.lmdbPath = lmdbPath
+        else:
+            self.lmdbPath = 'lmdb/datumdb'
+
+        if not os.path.exists(lmdbPath):
+            os.makedirs(lmdbPath)
 
         if multi_input or multi_output:
             # create self.readFlags for each worker
-            self.readFlags = [manager.Value('i', 0) for i in range(nInputPerRecord + nOutputPerRecord)]
+            self.readFlags = [manager.Value('i', 0) for i in range(self.nInputPerRecord + self.nOutputPerRecord)]
         else:
             # create self.readFlags for just one read_worker
             self.readFlags = [manager.Value('i', 0)]
 
         self.doneFlag = manager.Value('i', 0)
-        logger.debug("Serialize Instance created with {} dbs".format(nInputPerRecord + nOutputPerRecord))
+        logger.debug("Read Flags: " + repr([flag.value for flag in self.readFlags]))
+        logger.debug("Serialize Instance created with {} dbs".format(self.nInputPerRecord + self.nOutputPerRecord))
+
 
     def writeToLmdb(self, options):
         data_dir, args = options
@@ -419,12 +434,23 @@ class Serialize():
         # The default mapsize for LMDB is 1 GB, and it does not have dynamic sizing.
         # So for larger datasets, the mapsize should be explicitly set to almost 
         # the size of the folder containing the dataset.
-        
+
         proc = Popen(['du', '-s', data_dir], stdout=PIPE)
         shell_output = proc.communicate()[0]    # 0 = stdout, 1 = stderr
-        mapsize = int(re.search(r'(\d+)', shell_output).group())
+        mapsize = int(search(r'(\d+)', shell_output).group())
 
-        self.env.set_mapsize(mapsize)
+        self.env = lmdb.open(self.lmdbPath, max_dbs=(self.nInputPerRecord + self.nOutputPerRecord + 1), map_size=mapsize*1024*100)
+
+        # if mapsize <= 1048576:
+        #     self.env = lmdb.open(self.lmdbPath, max_dbs=(self.nInputPerRecord + self.nOutputPerRecord + 1), map_size=1048576*20)
+        # else:
+        #     self.env = lmdb.open(self.lmdbPath, max_dbs=(self.nInputPerRecord + self.nOutputPerRecord + 1), map_size=mapsize)
+
+        '''
+        why +1 than required?
+        A: The main db stores the keys to all the named dbs, which are datumdbs and labeldbs.
+        It does not contain any data to make the process more easily understandable; i.e. data in all the named dbs.
+        '''
 
         # save the dbnames for deserialization later
         self.inputDBs = []
@@ -607,10 +633,268 @@ class Serialize():
         self.write_worker.start()
         logger.debug("Write Worker started")
 
-        logger.info("Hajime (https://translate.google.com/#ja/en/Hajime)")
+
+    def deserialize(self, options):
+
+        self.lmdbPath = options['lmdbPath']
+        self.batch_size = int(options['batch_size'])
+
+        self.env = lmdb.open(self.lmdbPath, max_dbs=(self.nInputPerRecord + self.nOutputPerRecord + 1), readonly=True)
+
+        inputDBHandles = []
+        outputDBHandles = []
+        # get dbHandles for inputs
+        for idx in xrange(self.nInputPerRecord):
+            dbName = self.inputDBs[idx]
+            inputDBHandles.append(self.env.open_db(dbName))
+        # get dbHandles for outputs
+        for idx in xrange(self.nOutputPerRecord):
+            dbName = self.outputDBs[idx]
+            outputDBHandles.append(self.env.open_db(dbName))
+
+        txn_nameless = self.env.begin(write=False)
+        # input + output streams
+        n_streams = txn_nameless.stat()['entries']
+        logger.debug("Number of streams of data:" + repr(n_streams))
+
+        try:
+            assert int(n_streams) == self.nInputPerRecord + self.nOutputPerRecord
+        except AssertionError:
+            logger.error("Number of databases does not match with the given data.")
+
+        with self.env.begin(write=False, db=inputDBHandles[0]) as txn_named:
+            self.n_samples = txn_named.stat()['entries']
+            logger.debug("Number of samples: " + repr(self.n_samples))
+
+        # set number of batches
+        self.n_batches = self.n_samples // self.batch_size
+
+        input_cursors = [txn_nameless.cursor(inputDBHandle) for inputDBHandle in inputDBHandles]
+        output_cursors = [txn_nameless.cursor(outputDBHandle) for outputDBHandle in outputDBHandles]
+
+        logger.debug("Input cursors: " + repr(len(input_cursors)))
+        logger.debug("Output cursors: " + repr(len(output_cursors)))
+
+        input_shapes, output_shapes = self._get_datum_shapes(input_cursors, output_cursors)
+
+        return_dict = {'input_shapes': input_shapes, 'output_shapes': output_shapes, 'generator': self.batch_generator(input_cursors, output_cursors),
+                        'n_samples': self.n_samples, 'batch_size': self.batch_size}
+
+        return return_dict
 
 
-    def deserialize(self):
+    def _get_datum_shapes(self, input_cursors, output_cursors):
+        input_shapes = []
+        output_shapes = []
+
+        for input_cursor in input_cursors:
+            input_cursor.first()
+            _, raw_datum = input_cursor.item()
+            datum = Datum()
+            datum.ParseFromString(raw_datum)
+
+            if datum.imgdata.data:
+                flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+                x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+                shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+                logger.debug("input image shape: " + repr(shape))
+                input_shapes.append(shape)
+
+            if datum.numeric.data:
+                flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+                shape = flat_x.shape
+                logger.debug("input numeric shape: " + repr(shape))
+                input_shapes.append(shape)
+
+        for output_cursor in output_cursors:
+            output_cursor.first()
+            _, raw_datum = output_cursor.item()
+            datum = Datum()
+            datum.ParseFromString(raw_datum)
+
+            if datum.imgdata.data:
+                flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+                x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+                shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+                logger.debug("output image shape: " + repr(shape))
+                output_shapes.append(shape)
+
+            if datum.numeric.data:
+                flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+                shape = flat_x.shape
+                logger.debug("output numeric shape: " + repr(shape))
+                output_shapes.append(shape)
+
+            return (input_shapes, output_shapes)
+
+
+    def batch_generator(self, input_cursors, output_cursors):
+        # input_iterators, output_iterators = [], []
+        # input_flags, output_flags = [], []
+
+        # for input_cursor in input_cursors:
+        #     input_iterator = iter(input_cursor)
+        #     input_iterator = input_cursor.iternext()
+        #     input_iterators.append(input_iterator)
+        #     input_flags.append(False)
+
+        # for output_cursor in output_cursors:
+        #     output_iterator = iter(output_cursor)
+        #     output_iterator = output_cursor.iternext()
+        #     output_iterators.append(output_iterator)
+        #     output_flags.append(False)
+
+        # logger.debug("Input Iterators: " + repr(len(set(input_iterators))))
+        # logger.debug("Output Iterators: " + repr(len(set(output_iterators))))
+        # logger.debug("Batch size: " + repr(batch_size))
+
+        # while True:
+        #     inputs = []
+        #     outputs = []
+
+        #     # inputs
+        #     for idx, input_iterator in enumerate(input_iterators):
+        #         logger.debug("Reading input #{}".format(idx))
+        #         batch_inputs = []
+        #         for i in xrange(batch_size):
+        #             try:
+        #                 _, raw_datum = input_iterator.next()
+        #             except StopIteration:
+        #                 input_flags[idx] = True
+        #                 logger.info("Done reading input #{}".format(idx))
+        #                 continue
+
+        #             datum = Datum()
+        #             datum.ParseFromString(raw_datum)
+
+        #             if datum.imgdata.data:
+        #                 flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+        #                 x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+        #                 shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+        #                 logger.debug("input image shape: " + repr(shape))
+        #                 batch_inputs.append(x)
+        #             elif datum.numeric.data:
+        #                 flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+        #                 logger.debug("input numeric shape: " + repr(flat_x.shape))
+        #                 batch_inputs.append(flat_x)
+
+        #         if input_flags[idx]: continue
+        #         else:
+        #             batch_inputs = np.array(batch_inputs)
+        #             logger.debug("Batch input shape: " + repr(batch_inputs.shape))
+        #             inputs.append(batch_inputs)
+
+        #     for idx, output_iterator in enumerate(output_iterators):
+        #         logger.debug("Reading output #{}".format(idx))
+        #         batch_outputs = []
+        #         for i in xrange(batch_size):
+        #             try:
+        #                 _, raw_datum = output_iterator.next()
+        #             except StopIteration:
+        #                 output_flags[idx] = True
+        #                 logger.info("Done reading output #{}".format(idx))
+        #                 continue
+
+        #             datum = Datum()
+        #             datum.ParseFromString(raw_datum)
+
+        #             if datum.imgdata.data:
+        #                 flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+        #                 x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+        #                 shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+        #                 logger.debug("output image shape: " + repr(shape))
+        #                 batch_outputs.append(x)
+        #             elif datum.numeric.data:
+        #                 flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+        #                 logger.debug("output numeric shape: " + repr(flat_x.shape))
+        #                 batch_outputs.append(flat_x)
+
+        #         if output_flags[idx]: continue
+        #         else:   
+        #             batch_outputs = np.array(batch_outputs)
+        #             logger.debug("Batch output shape: " + repr(batch_outputs.shape))
+        #             outputs.append(batch_outputs)
+
+        #     logger.debug("Input flags: " + repr(input_flags))
+        #     logger.debug("Output flags: " + repr(output_flags))
+
+        #     if all(flag == True for flag in input_flags) and all(flag == True for flag in output_flags):
+        #         break
+
+        #     input_0 = inputs[0]
+        #     logger.debug("All same inputs: " + repr(all(np.array_equal(input_0, input_i) for input_i in inputs)))
+        #     output_0 = outputs[0]
+        #     logger.debug("All same outputs: " + repr(all(np.array_equal(output_0, output_i) for output_i in outputs)))
+
+        #     # logger.debug("Inputs: " + len(set(inputs)))
+        #     # logger.debug("Outputs: " + len(set(outputs)))
+
+        #     yield (inputs, outputs)
+        while 1:    
+            for idx in xrange(self.n_batches):
+                inputs = []
+                outputs = []
+
+                for input_cursor in input_cursors:
+                    n = self.batch_size
+                    input_cursor.set_range(str(idx*self.batch_size + 1))
+                    logger.debug("Current input key: " + repr(input_cursor.key()))
+                    batch_inputs = []
+
+                    for _, raw_datum in input_cursor:
+                        if n <= 0: break
+
+                        datum = Datum()
+                        datum.ParseFromString(raw_datum)
+
+                        if datum.imgdata.data:
+                            flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+                            x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+                            shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+                            logger.debug("input image shape: " + repr(shape))
+                            batch_inputs.append(x)
+                        elif datum.numeric.data:
+                            flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+                            logger.debug("input numeric shape: " + repr(flat_x.shape))
+                            batch_inputs.append(flat_x)
+
+                        n -= 1
+
+                    batch_inputs = np.array(batch_inputs)
+                    logger.debug("Batch input shape: " + repr(batch_inputs.shape))
+                    inputs.append(batch_inputs)
+
+                for output_cursor in output_cursors:
+                    n = self.batch_size
+                    output_cursor.set_range(str(idx*self.batch_size + 1))
+                    logger.debug("Current output key: " + repr(output_cursor.key()))
+                    batch_outputs = []
+
+                    for _, raw_datum in output_cursor:
+                        if n <= 0: break
+
+                        datum = Datum()
+                        datum.ParseFromString(raw_datum)
+
+                        if datum.imgdata.data:
+                            flat_x = np.fromstring(datum.imgdata.data, dtype='float32')
+                            x = flat_x.reshape((datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels))
+                            shape = (datum.imgdata.height, datum.imgdata.width, datum.imgdata.channels)
+                            logger.debug("output image shape: " + repr(shape))
+                            batch_outputs.append(x)
+                        elif datum.numeric.data:
+                            flat_x = np.fromstring(datum.numeric.data, dtype='float32')
+                            logger.debug("output numeric shape: " + repr(flat_x.shape))
+                            batch_outputs.append(flat_x)
+
+                        n -= 1
+
+                    batch_outputs = np.array(batch_outputs)
+                    logger.debug("Batch output shape: " + repr(batch_outputs.shape))
+                    outputs.append(batch_outputs)
+
+                yield(inputs, outputs)
+
 
 if __name__ == '__main__':
     args = sys.argv[1:]     # clip off the script name

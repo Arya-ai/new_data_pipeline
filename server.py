@@ -6,16 +6,22 @@ import os, zipfile, json
 import logging
 import urllib2, sys
 # custom module
-import serialize
+from serialize import Serialize
+from tmp import keras_mimo
 
-logging.basicConfig(level=logging.DEBUG)
+LMDB_DIR = 'lmdb/datumdb'
+ZIPPED_FILE = 'datasets/dataset.zip'
+DATA_DIR = 'datasets/dataset'
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class DownloadFile(Resource):
     isLeaf = True
     def __init__(self):
         self.numberRequests = 0
-        self.serialize = None
+        self.data = None
+        self.serialized_flag = False
 
     def serverStart(self):
         logger.info("Server starting...\nPress Ctrl + C to stop.\n")
@@ -30,7 +36,7 @@ class DownloadFile(Resource):
     def render_GET(self, request):
         logger.info("\nGET request received!")
         self.numberRequests += 1
-        if self.serialize:
+        if self.data:
             logger.debug("Serialization in progress." + 
                 "\nChecking whether data Serialization has completed.")
             self.joinThreads(request)
@@ -43,23 +49,42 @@ class DownloadFile(Resource):
         logger.info("\nPOST request received!")
         req_dict = json.loads(request.content.getvalue())
 
-        logger.debug("id: " + req_dict['id'])
-        logger.debug("url: " + req_dict['url'])
-        logger.info("Fetching the dataset...")
-        
-        reactor.callInThread(self.downloadFile, request)
-        return NOT_DONE_YET
+        if not self.serialized_flag:
+            if not self.data:
+                if req_dict['command'] == 'serialize':
+                    logger.debug("id: " + req_dict['id'])
+                    logger.debug("url: " + req_dict['url'])
+                    logger.info("Fetching the dataset...")
+                    reactor.callInThread(self.downloadFile, request)
+                elif req_dict['command'] == 'deserialize':
+                    logger.info("Whoops, Tried deserializing before serialization.")
+                    return "Cannot deserialize before serialization."
+                else:
+                    logger.info("Unknown command passed.")
+                    return "Please provide a valid command."
+            else:
+                logger.debug("Serialization in progress." + 
+                    "\nChecking whether data Serialization has completed.")
+                self.joinThreads(request)
+                return NOT_DONE_YET
 
-    # def print_request(self, request):
-    #     req_dict = json.loads(request.content.getvalue())
-    #     print req_dict
-    #     request.write("request accepted!")
-    #     request.finish()
+        else:
+            if req_dict['command'] == 'deserialize':
+                logger.info("Starting Deserialization and Training.")
+                reactor.callInThread(self.deserialize, req_dict)
+                return "Started training. Sit back."
+            elif req_dict['command'] == 'serialize':
+                logger.info("Tried serializing again.")
+                return "Serialization already done. You can deserialize it now."
+            else: 
+                logger.info("Unknown command passed.")
+                return "Please provide a valid command."
+        return NOT_DONE_YET
 
     def downloadFile(self, request):
         args = json.loads(request.content.getvalue())
         url = args['url']
-        filename = "dataset.zip"
+        filename = ZIPPED_FILE
         try:
             urllib.urlretrieve(url, filename)
             u = urllib2.urlopen(url)
@@ -114,10 +139,10 @@ class DownloadFile(Resource):
             multi_output = False
             nOutputPerRecord = 1
 
-        self.serialize = serialize.Serialize(nInputPerRecord, multi_input,nOutputPerRecord, multi_output)
+        self.data = Serialize()
+        self.data._init_write(nInputPerRecord, multi_input, nOutputPerRecord, multi_output, lmdbPath=LMDB_DIR)
         self.d = threads.deferToThread(self.unzip, filename, args)
-
-        self.d.addCallback(self.serialize.writeToLmdb)
+        self.d.addCallback(self.data.writeToLmdb)
         self.d.addErrback(self.errHandler)
         self.d.addErrback(self.errHandler)
 
@@ -126,14 +151,14 @@ class DownloadFile(Resource):
         logger.error("Error caught in callback chain: ", exc_info=True)
 
     def unzip(self, filename, args):
-        unzipped_dir = "../datasets/dataset"
+        unzipped_dir = DATA_DIR
         try:
             logger.info("Unzipping the file...")
             with zipfile.ZipFile(filename, 'r') as zipref:
                 zipref.extractall(unzipped_dir)
             logger.info("Dataset extracted.")
 
-            os.remove("dataset.zip")    #get rid of the zip
+            os.remove(ZIPPED_FILE)    #get rid of the zip
             logger.debug("got rid of the stupid zip")
             return list([unzipped_dir, args])
 
@@ -144,14 +169,15 @@ class DownloadFile(Resource):
 
     def joinThreads(self, request):
         logger.debug("inside joinThreads")
-        logger.debug("readFlags: " + repr([flag.value for flag in self.serialize.readFlags]))
+        logger.debug("readFlags: " + repr([flag.value for flag in self.data.readFlags]))
         
-        if self.serialize.doneFlag.value == 1:
-            if self.serialize.fileQueue.empty() and self.serialize.datumQueue.empty():
+        if self.data.doneFlag.value == 1:
+            if self.data.fileQueue.empty() and self.data.datumQueue.empty():
                 logger.debug("Done with everything. Closing the lmdb environment.")
-                self.serialize.env.close()
+                self.data.env.close()
                 logger.debug("Closed the lmdb environment.")
                 logger.info("Data Serialization complete.")
+                self.serialized_flag = True
                 request.write("Data Serialization complete!.\n")
                 request.finish()
             else:
@@ -159,11 +185,11 @@ class DownloadFile(Resource):
                 request.write("Serializing the data. Try again later.\n")
                 request.finish()
 
-        elif all(flag.value == 1 for flag in self.serialize.readFlags):
+        elif all(flag.value == 1 for flag in self.data.readFlags):
             logger.debug("Reading complete. Joining read_worker.")
-            for worker in self.serialize.read_workers:
+            for worker in self.data.read_workers:
                 worker.join()
-            self.serialize.doneFlag.value = 1
+            self.data.doneFlag.value = 1
             logger.debug("Joined read_worker.")
             request.write("Serializing the data. Try again later.\n")
             request.finish()
@@ -171,6 +197,11 @@ class DownloadFile(Resource):
             logger.debug("Reading not yet complete.")
             request.write("Serializing the data. Try again later.\n")
             request.finish()
+
+    def deserialize(self, req_dict):
+        return_dict = self.data.deserialize(req_dict)
+        self.model = keras_mimo.MultiModel(req_dict)
+        self.model.train(return_dict)
 
 
 if __name__ == '__main__':

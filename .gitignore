@@ -95,3 +95,6 @@ tmp/
 
 # web request files for testing
 requests/
+
+# datasets
+datasets/

@@ -7,7 +7,7 @@ import logging
 import urllib2, sys
 # custom module
 from serialize import Serialize
-from tmp import keras_mimo
+from tests import keras_mimo
 
 LMDB_DIR = 'lmdb/datumdb'
 ZIPPED_FILE = 'datasets/dataset.zip'
@@ -15,6 +15,12 @@ DATA_DIR = 'datasets/dataset'
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+if not os.path.exists(LMDB_DIR):
+    os.makedirs(LMDB_DIR)
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
 
 class DownloadFile(Resource):
     isLeaf = True

@@ -94,4 +94,8 @@ lmdb/
 tmp/
 
 # web request files for testing
+
 requests/
+
+# video-caption data
+data/

@@ -99,3 +99,10 @@ requests/
 
 # video-caption data
 data/
+
+# src files
+src/*.h5
+src/*.0
+src/*.weights
+src/*.summary
+src/*.out

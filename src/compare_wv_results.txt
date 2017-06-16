@@ -1,0 +1,22 @@
+
+Loading Gensim embeddings
+Accuracy for Word2Vec:
+Evaluating...
+
+
+Semantic: 70/661, Accuracy: 10.59%
+Syntactic: 598/5799, Accuracy: 10.31%
+
+
+Loading FastText embeddings
+Accuracy for FastText (with n-grams):
+Evaluating...
+
+
+Semantic: 48/253, Accuracy: 18.97%
+Syntactic: 1812/3319, Accuracy: 54.59%
+
+[(10.590015128593041, 10.312122779789618), (18.972332015810277, 54.594757457065384)]
+
+This shows that fasttext works better for this dataset for both semantic and syntactic tasks.
+So we can use fasttext word vectors for word representations.

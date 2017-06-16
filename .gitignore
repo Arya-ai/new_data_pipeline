@@ -87,6 +87,9 @@ ENV/
 # mypy
 .mypy_cache/
 
+# tox config
+*.ini
+
 # lmdb files
 lmdb/
 

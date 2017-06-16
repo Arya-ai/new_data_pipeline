@@ -98,3 +98,6 @@ requests/
 
 # datasets
 datasets/
+
+# satellite data
+data/

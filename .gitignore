@@ -106,3 +106,4 @@ src/*.0
 src/*.weights
 src/*.summary
 src/*.out
+src/caption_db/

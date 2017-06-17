@@ -1,6 +1,7 @@
 import lmdb
 import numpy as np
 import cv2  #openCV for getting image attributes
+import tifffile as tiff
 import os, sys
 from subprocess import Popen, PIPE
 from re import search
@@ -31,7 +32,11 @@ class readWorker():
             for record in tqdm(binding_df):
                 key += 1
                 imagePath = os.path.join(data_dir, str(record)) + str(options['extension'])
-                ndarray = cv2.imread(imagePath)
+                # Open CV does not easily support tiff images
+                if imagePath.endswith('.tif'):
+                    ndarray = tiff.imread(imagePath)
+                else:
+                    ndarray = cv2.imread(imagePath)
                 task_dict = {'data': ndarray, 'dataType': 'image', 'key': key, 'dbId': dbId, 'dataFlow': dataFlow}
                 logger.debug("ImageReader: Pushed item {} into File Queue...".format(key))
                 fileQueue.put(task_dict)
@@ -677,7 +682,8 @@ class Serialize():
 
         input_shapes, output_shapes = self._get_datum_shapes(input_cursors, output_cursors)
 
-        return_dict = {'input_shapes': input_shapes, 'output_shapes': output_shapes, 'generator': self.batch_generator(input_cursors, output_cursors),
+        return_dict = {'input_shapes': input_shapes, 'output_shapes': output_shapes, 
+                        'generator': self.batch_generator(input_cursors, output_cursors), 
                         'n_samples': self.n_samples, 'batch_size': self.batch_size}
 
         return return_dict

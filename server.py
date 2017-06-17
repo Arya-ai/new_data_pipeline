@@ -7,11 +7,11 @@ import logging
 import urllib2, sys
 # custom module
 from serialize import Serialize
-from tests import keras_mimo
+from src.models import train_model_0
 
-LMDB_DIR = 'lmdb/datumdb'
+LMDB_DIR = 'data/interim/lmdb/traindb'
 ZIPPED_FILE = 'datasets/dataset.zip'
-DATA_DIR = 'datasets/dataset'
+DATA_DIR = 'data/processed'
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -92,33 +92,33 @@ class DownloadFile(Resource):
         url = args['url']
         filename = ZIPPED_FILE
         try:
-            urllib.urlretrieve(url, filename)
-            u = urllib2.urlopen(url)
-            h = u.info()
-            totalSize = int(h["Content-Length"])
-            if not totalSize:
-                logger.error("Dataset not found.")
+            # urllib.urlretrieve(url, filename)
+            # u = urllib2.urlopen(url)
+            # h = u.info()
+            # totalSize = int(h["Content-Length"])
+            # if not totalSize:
+            #     logger.error("Dataset not found.")
 
-            logger.debug("Downloading {} bytes...\n".format(totalSize))
-            fp = open(filename, 'wb')
+            # logger.debug("Downloading {} bytes...\n".format(totalSize))
+            # fp = open(filename, 'wb')
 
-            blockSize = 8192    # urllib.urlretrieve uses 8192
-            count = 0
-            while True:
-                chunk = u.read(blockSize)
-                if not chunk: break
-                fp.write(chunk)
-                count += 1
-                if totalSize > 0:
-                    percent = int(count * blockSize * 100 / totalSize)
-                    if percent > 100: percent = 100
-                    if percent < 100:
-                        sys.stdout.write("\r{}% downloaded".format(percent))
-                        sys.stdout.flush()
-                    else:
-                        sys.stdout.write("\nDone.")
-            fp.flush()
-            fp.close()
+            # blockSize = 8192    # urllib.urlretrieve uses 8192
+            # count = 0
+            # while True:
+            #     chunk = u.read(blockSize)
+            #     if not chunk: break
+            #     fp.write(chunk)
+            #     count += 1
+            #     if totalSize > 0:
+            #         percent = int(count * blockSize * 100 / totalSize)
+            #         if percent > 100: percent = 100
+            #         if percent < 100:
+            #             sys.stdout.write("\r{}% downloaded".format(percent))
+            #             sys.stdout.flush()
+            #         else:
+            #             sys.stdout.write("\nDone.")
+            # fp.flush()
+            # fp.close()
 
             logger.info("Download finished!")
             request.write("Dataset downloaded.")
@@ -159,13 +159,13 @@ class DownloadFile(Resource):
     def unzip(self, filename, args):
         unzipped_dir = DATA_DIR
         try:
-            logger.info("Unzipping the file...")
-            with zipfile.ZipFile(filename, 'r') as zipref:
-                zipref.extractall(unzipped_dir)
-            logger.info("Dataset extracted.")
+            # logger.info("Unzipping the file...")
+            # with zipfile.ZipFile(filename, 'r') as zipref:
+            #     zipref.extractall(unzipped_dir)
+            # logger.info("Dataset extracted.")
 
-            os.remove(ZIPPED_FILE)    #get rid of the zip
-            logger.debug("got rid of the stupid zip")
+            # os.remove(ZIPPED_FILE)    #get rid of the zip
+            # logger.debug("got rid of the stupid zip")
             return list([unzipped_dir, args])
 
         except Exception as e:
@@ -206,9 +206,13 @@ class DownloadFile(Resource):
 
     def deserialize(self, req_dict):
         return_dict = self.data.deserialize(req_dict)
-        self.model = keras_mimo.MultiModel(req_dict)
-        self.model.train(return_dict)
+        self.model = train_model_0.VGG19_mod()
 
+        build_dict = dict(k:return_dict][k] for k in ['input_shapes', 'output_shapes'])
+
+        self.model.build(build_dict)
+
+        self.model.train(return_dict)
 
 if __name__ == '__main__':
     root = Resource()

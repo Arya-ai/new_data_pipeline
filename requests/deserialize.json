@@ -1,0 +1,6 @@
+{
+	"command": "deserialize",
+	"lmdbPath": "data/processed/lmdb/traindb",
+	"batch_size": "64",
+	"epochs": "10"
+}

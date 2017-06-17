@@ -1,0 +1,27 @@
+{
+	"command": "serialize",
+
+	"id": "1234",
+
+	"url": "",
+
+	"input": [
+		{
+			"dataType": "image",
+			"directory": "train-tif-v2",
+			"binding_field": "image_name",
+			"extension": ".tif"
+		}
+	],
+	
+	"output": [
+		{
+			"dataType": "numeric",
+			"file": "output.csv"
+		}
+	],
+
+	"image_binding": {
+		"file": "image_binding.csv"
+	}
+}

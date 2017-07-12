@@ -7,9 +7,12 @@ import logging
 import urllib2, sys
 # custom module
 from serialize import Serialize
-from src.models import train_model_0
+from src.models import train_model_2
+print("New script imported.")
 
-LMDB_DIR = 'data/interim/lmdb/traindb'
+PORT = 8000
+
+LMDB_DIR = 'data/interim/lmdb/traindb-jpg'
 ZIPPED_FILE = 'datasets/dataset.zip'
 DATA_DIR = 'data/processed'
 
@@ -30,7 +33,7 @@ class DownloadFile(Resource):
         self.serialized_flag = False
 
     def serverStart(self):
-        logger.info("Server starting...\nPress Ctrl + C to stop.\n")
+        logger.info("Server starting at port {}...\nPress Ctrl + C to stop.\n".format(PORT))
     
     '''
     Assumptions:
@@ -55,8 +58,10 @@ class DownloadFile(Resource):
         logger.info("\nPOST request received!")
         req_dict = json.loads(request.content.getvalue())
 
-        if not self.serialized_flag:
-            if not self.data:
+        if 'already_serialized' in req_dict and req_dict['already_serialized'] == 'True':
+            self.serialized_flag = True
+        if self.serialized_flag is not True:
+            if self.data is None:
                 if req_dict['command'] == 'serialize':
                     logger.debug("id: " + req_dict['id'])
                     logger.debug("url: " + req_dict['url'])
@@ -205,12 +210,13 @@ class DownloadFile(Resource):
             request.finish()
 
     def deserialize(self, req_dict):
+        self.data = Serialize() 
         return_dict = self.data.deserialize(req_dict)
-        self.model = train_model_0.VGG19_mod()
+        self.model = train_model_2.VGG19_mod()
 
-        build_dict = dict(k:return_dict][k] for k in ['input_shapes', 'output_shapes'])
+        # build_dict = dict((k,return_dict[k]) for k in ['input_shapes', 'output_shapes'] if k in return_dict)
 
-        self.model.build(build_dict)
+        self.model.build(return_dict)
 
         self.model.train(return_dict)
 
@@ -221,5 +227,5 @@ if __name__ == '__main__':
     factory = Site(root)
 
     reactor.callWhenRunning(downloadResource.serverStart)
-    reactor.listenTCP(8000, factory)
+    reactor.listenTCP(PORT, factory)
     reactor.run()

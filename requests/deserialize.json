@@ -1,6 +1,10 @@
 {
 	"command": "deserialize",
-	"lmdbPath": "data/processed/lmdb/traindb",
-	"batch_size": "64",
-	"epochs": "10"
+	"lmdbPath": "data/interim/lmdb/traindb",
+	"batch_size": "16",
+	"epochs": "50",
+	"already_serialized": "True",
+	"nInputPerRecord": "1",
+	"nOutputPerRecord": "1",
+	"train_val_split": "0.95"
 }

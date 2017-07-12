@@ -57,7 +57,7 @@ target/
 
 # Jupyter Notebook
 *.ipynb_checkpoints
-*.ipynb
+notebooks/*.ipynb
 
 # pyenv
 .python-version
@@ -105,3 +105,11 @@ datasets/
 
 # satellite data
 data/
+
+# logs
+logs*.txt
+screenlog.*
+
+# models
+models/*
+models/VGG19*

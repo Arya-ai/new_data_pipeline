@@ -111,5 +111,5 @@ logs*.txt
 screenlog.*
 
 # models
-models/*
-models/VGG19*
+# models/*
+# models/VGG19*

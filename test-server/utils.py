@@ -10,7 +10,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 model_path = os.path.abspath('../amazon-satellite-imagery/models/VGG19_model_4.hdf5')
-weights_path = os.path.abspath('../amazon-satellite-imagery/models/VGG19_12weights.44-2.53.hdf5')
+weights_path = os.path.abspath('../amazon-satellite-imagery/models/VGG19_12/weights.44-2.53.hdf5')
 print("New weights loaded!")
 
 def get_image_from_buffer(image_buffer):

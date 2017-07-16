@@ -113,3 +113,4 @@ screenlog.*
 # models
 # models/*
 # models/VGG19*
+*.hdf5

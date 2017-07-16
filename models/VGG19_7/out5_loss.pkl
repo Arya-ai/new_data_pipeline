@@ -1,0 +1,51 @@
+(lp1
+cnumpy.core.multiarray
+scalar
+p2
+(cnumpy
+dtype
+p3
+(S'f8'
+I0
+I1
+tRp4
+(I3
+S'<'
+NNNI-1
+I-1
+I0
+tbS'\xc5\x06\t\x92$\x81 @'
+tRp5
+ag2
+(g4
+S'6\xf2B\xe9\xc2\x82 @'
+tRp6
+ag2
+(g4
+S'x\x9f\xd4\x92\x03\x83 @'
+tRp7
+ag2
+(g4
+S'\xb0\xea8\x93\x03\x83 @'
+tRp8
+ag2
+(g4
+S'\xf0\x95r\xe5\x84\x83 @'
+tRp9
+ag2
+(g4
+S'\xe7\xde\xd3?\x82\x82 @'
+tRp10
+ag2
+(g4
+S'\xf0?U<D\x83 @'
+tRp11
+ag2
+(g4
+S'\xcbc\xda\xe5\x84\x83 @'
+tRp12
+ag2
+(g4
+S'\x16r\xed\xe1F\x84 @'
+tRp13
+a.
